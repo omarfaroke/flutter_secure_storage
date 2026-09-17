@@ -168,6 +168,9 @@ For advanced users, all combinations below are supported using the `AndroidOptio
 - **`enforceBiometrics` parameter** (default: `false`):
     - `false`: Gracefully degrades if biometrics unavailable
     - `true`: Strictly requires device security (PIN/pattern/biometric), throws exception if unavailable
+- **`requireBiometricsPerOperation` parameter** (default: `true` for `AndroidOptions.biometric()`):
+    - `true`: Prompt on every `read` / `write` / `readAll`
+    - `false`: Unlock once for the process lifetime
 
 #### Migration with Backup Protection
 
@@ -248,13 +251,16 @@ For backward compatibility with devices running Android 6.0 - 8.1 (API 23-27), y
 
 ##### Using Biometric Authentication
 
-You can enable biometric authentication using the `AndroidOptions.biometric()` constructor:
+You can enable biometric authentication using the `AndroidOptions.biometric()` constructor.
+
+By default this prompts on **every** `read` / `write` / `readAll`. Set `requireBiometricsPerOperation: false` to unlock once for the process lifetime.
 
 ```dart
 // Optional biometric authentication (graceful degradation)
 final storage = FlutterSecureStorage(
   aOptions: AndroidOptions.biometric(
     enforceBiometrics: false, // Default - works without biometrics
+    requireBiometricsPerOperation: true, // Default - prompt on every read/write
     biometricPromptTitle: 'Unlock to access your data',
     biometricPromptSubtitle: 'Use fingerprint or face unlock',
   ),
@@ -346,6 +352,21 @@ final storage = Platform.isMacOS
 ```
 
 This falls back to the legacy (non-data-protection) Keychain, which doesn't require `keychain-access-groups` or a provisioning profile.
+
+#### Biometric Authentication
+
+Use `accessControlFlags` so Keychain items require Face ID, Touch ID, or the device passcode. `description` is shown on the system prompt. Each `read` / `write` shows a new prompt by default (`biometricReuseDurationSeconds: 0`). Raise that value only to reuse a recent evaluation.
+
+```dart
+final storage = FlutterSecureStorage(
+  iOptions: IOSOptions(
+    accessibility: KeychainAccessibility.passcode,
+    accessControlFlags: [AccessControlFlag.biometryCurrentSet],
+    description: 'Authenticate to access your data',
+    localizedCancelTitle: 'Cancel',
+  ),
+);
+```
 
 ### Web
 

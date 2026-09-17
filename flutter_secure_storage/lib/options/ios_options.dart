@@ -23,6 +23,8 @@ class IOSOptions extends AppleOptions {
     super.authenticationUIBehavior,
     super.accessControlFlags,
     super.useSecureEnclave,
+    super.localizedCancelTitle,
+    super.biometricReuseDurationSeconds,
   });
 
   /// A predefined `IosOptions` instance with default settings.

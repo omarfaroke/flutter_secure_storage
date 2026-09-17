@@ -438,7 +438,7 @@ void main() {
           'migrateOnAlgorithmChange': 'true',
           'migrateWithBackup': 'false',
           'enforceBiometrics': 'false',
-          'requireBiometricsPerOperation': 'false',
+          'requireBiometricsPerOperation': 'true',
           'keyCipherAlgorithm': 'AES_GCM_NoPadding',
           'storageCipherAlgorithm': 'AES_GCM_NoPadding',
           'biometricType': 'biometricOrDeviceCredential',
@@ -465,7 +465,7 @@ void main() {
         'migrateOnAlgorithmChange': 'true',
         'migrateWithBackup': 'false',
         'enforceBiometrics': 'true',
-        'requireBiometricsPerOperation': 'false',
+        'requireBiometricsPerOperation': 'true',
         'keyCipherAlgorithm': 'AES_GCM_NoPadding',
         'storageCipherAlgorithm': 'AES_GCM_NoPadding',
         'biometricType': 'biometricOrDeviceCredential',
@@ -491,15 +491,15 @@ void main() {
     });
 
     test(
-      'AndroidOptions.biometric with requireBiometricsPerOperation=true',
+      'AndroidOptions.biometric with requireBiometricsPerOperation=false',
       () {
         const options = AndroidOptions.biometric(
           enforceBiometrics: true,
-          requireBiometricsPerOperation: true,
+          requireBiometricsPerOperation: false,
         );
 
         expect(options.toMap()['enforceBiometrics'], 'true');
-        expect(options.toMap()['requireBiometricsPerOperation'], 'true');
+        expect(options.toMap()['requireBiometricsPerOperation'], 'false');
       },
     );
 
@@ -565,10 +565,10 @@ void main() {
       () {
         const original = AndroidOptions.biometric(enforceBiometrics: true);
 
-        final copied = original.copyWith(requireBiometricsPerOperation: true);
+        final copied = original.copyWith(requireBiometricsPerOperation: false);
 
-        expect(copied.toMap()['requireBiometricsPerOperation'], 'true');
-        expect(original.toMap()['requireBiometricsPerOperation'], 'false');
+        expect(copied.toMap()['requireBiometricsPerOperation'], 'false');
+        expect(original.toMap()['requireBiometricsPerOperation'], 'true');
       },
     );
 
@@ -819,6 +819,7 @@ void main() {
         'accessibility': 'unlocked',
         'synchronizable': 'false',
         'useSecureEnclave': 'false',
+        'biometricReuseDurationSeconds': '0.0',
       });
     });
 
@@ -860,6 +861,7 @@ void main() {
           AccessControlFlag.biometryCurrentSet.name,
         ].toString(),
         'useSecureEnclave': 'false',
+        'biometricReuseDurationSeconds': '0.0',
       });
     });
 
@@ -884,6 +886,7 @@ void main() {
         'accessibility': 'unlocked',
         'synchronizable': 'false',
         'useSecureEnclave': 'false',
+        'biometricReuseDurationSeconds': '0.0',
         'usesDataProtectionKeychain': 'true',
       });
     });
@@ -903,6 +906,7 @@ void main() {
         'accessibility': 'first_unlock',
         'synchronizable': 'true',
         'useSecureEnclave': 'false',
+        'biometricReuseDurationSeconds': '0.0',
         'usesDataProtectionKeychain': 'false',
       });
     });

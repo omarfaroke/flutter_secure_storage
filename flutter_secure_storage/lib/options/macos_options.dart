@@ -23,6 +23,8 @@ class MacOsOptions extends AppleOptions {
     super.accessControlFlags,
     this.usesDataProtectionKeychain = true,
     super.useSecureEnclave = false,
+    super.localizedCancelTitle,
+    super.biometricReuseDurationSeconds,
   });
 
   /// `kSecUseDataProtectionKeychain` (macOS only): **Shared**.

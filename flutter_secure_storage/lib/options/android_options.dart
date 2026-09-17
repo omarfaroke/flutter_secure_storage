@@ -75,20 +75,21 @@ class AndroidOptions extends Options {
        _biometricType = biometricType,
        _requireBiometricConfirmation = requireBiometricConfirmation;
 
-  /// Maximum security storage with optional biometric authentication.
-  /// - Optionally requires biometric authentication
-  ///   (set enforceBiometrics=true)
-  /// - Strong authenticated encryption (AES/GCM/NoPadding 256-bit)
-  /// - Hardware-backed AES key with optional user presence requirement
-  /// - API 28+ (Android 9.0+)
-  /// - When enforceBiometrics=false, gracefully degrades if biometrics
+  /// KeyStore AES-GCM storage with optional biometric authentication.
+  ///
+  /// - AES/GCM/NoPadding for the data key and the stored values
+  /// - Hardware-backed wrapping key with optional user authentication
+  /// - API 28+ (Android 9.0+) when biometrics are enforced
+  /// - Prompts on every `read` / `write` / `readAll` by default
+  ///   ([requireBiometricsPerOperation] defaults to `true`)
+  /// - When [enforceBiometrics] is `false`, degrades if biometrics are
   ///   unavailable
   const AndroidOptions.biometric({
     bool resetOnError = true,
     bool migrateOnAlgorithmChange = true,
     bool migrateWithBackup = false,
     bool enforceBiometrics = false,
-    bool requireBiometricsPerOperation = false,
+    bool requireBiometricsPerOperation = true,
     AndroidBiometricType biometricType =
         AndroidBiometricType.biometricOrDeviceCredential,
     bool requireBiometricConfirmation = true,
@@ -146,20 +147,18 @@ class AndroidOptions extends Options {
   /// Defaults to false.
   final bool _enforceBiometrics;
 
-  /// Whether a fresh biometric/PIN authentication is required for every
-  /// `read`/`readAll`/`write` call, instead of only the first one.
+  /// Whether biometric/PIN authentication is required for every
+  /// `read` / `readAll` / `write` call.
   ///
-  /// By default, once the app key has been unlocked (on the first call after
-  /// the app starts), it is kept in memory and reused for later calls
-  /// without prompting again. Setting this to `true` disables that reuse:
-  /// the app key is decrypted fresh for each call and never cached, so a
-  /// biometric prompt appears every time.
+  /// When `false`, the wrapping key is unlocked once after [initialize] and
+  /// reused for later calls in the same process.
   ///
-  /// Only takes effect when biometric authentication is actually active
-  /// (i.e. combined with `AndroidOptions.biometric()` on a device that has
-  /// biometrics/device credentials enrolled); otherwise this is a no-op.
+  /// When `true`, that key is not cached: each call authenticates again and
+  /// discards the decrypted key afterwards.
   ///
-  /// Defaults to false.
+  /// [AndroidOptions.biometric] defaults to `true`. [AndroidOptions] defaults
+  /// to `false`. Has no effect unless biometric authentication is active
+  /// ([AndroidOptions.biometric] on a device with biometrics or a lock screen).
   final bool _requireBiometricsPerOperation;
 
   /// Algorithm used to encrypt the secret key.

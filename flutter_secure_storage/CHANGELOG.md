@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* **android:** `AndroidOptions.biometric()` prompts on every `read` / `write` / `readAll` by default (`requireBiometricsPerOperation`)
+* **android:** show an unbound BiometricPrompt on every per-operation read/write (CryptoObject auth was skipping the UI after the first success)
+* **darwin:** apply `description` and `localizedCancelTitle` on the system prompt; default reuse duration is 0
+* **android,darwin:** wipe key material and plaintext after a successful read or write
+* **darwin:** fail closed when a Secure Enclave wrapped key cannot be unwrapped
+
 ## [11.2.0](https://github.com/juliansteenbakker/flutter_secure_storage/compare/flutter_secure_storage-v11.1.1...flutter_secure_storage-v11.2.0) (2026-09-16)
 
 

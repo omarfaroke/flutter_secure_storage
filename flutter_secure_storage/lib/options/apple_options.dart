@@ -83,6 +83,8 @@ abstract class AppleOptions extends Options {
     this.authenticationUIBehavior,
     this.accessControlFlags = const [],
     this.useSecureEnclave = false,
+    this.localizedCancelTitle,
+    this.biometricReuseDurationSeconds = 0,
   });
 
   /// The default account name associated with the keychain items.
@@ -200,6 +202,18 @@ abstract class AppleOptions extends Options {
   ///   since keys are device-bound.
   final bool useSecureEnclave;
 
+  /// `LAContext.localizedCancelTitle`.
+  /// Title of the cancel button on the system authentication dialog.
+  final String? localizedCancelTitle;
+
+  /// `LAContext.touchIDAuthenticationAllowableReuseDuration`.
+  ///
+  /// Seconds a successful biometric evaluation may be reused. `0` (default)
+  /// shows a new system prompt on every `read` / `write`. Apple caps this at
+  /// 300 seconds. One [LAContext] is still shared inside a single method call
+  /// (for example `containsKey` then `write`).
+  final double biometricReuseDurationSeconds;
+
   @override
   Map<String, String> toMap() => <String, String>{
     'accountName': ?accountName,
@@ -224,5 +238,7 @@ abstract class AppleOptions extends Options {
           .toList()
           .toString(),
     'useSecureEnclave': '$useSecureEnclave',
+    'localizedCancelTitle': ?localizedCancelTitle,
+    'biometricReuseDurationSeconds': '$biometricReuseDurationSeconds',
   };
 }

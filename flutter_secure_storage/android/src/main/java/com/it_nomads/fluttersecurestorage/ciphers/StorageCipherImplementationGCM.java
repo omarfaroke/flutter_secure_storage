@@ -9,10 +9,13 @@ import com.it_nomads.fluttersecurestorage.FlutterSecureStorageConfig;
 import java.security.Key;
 import java.security.SecureRandom;
 import java.security.spec.AlgorithmParameterSpec;
+import java.util.Arrays;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import javax.security.auth.DestroyFailedException;
+import javax.security.auth.Destroyable;
 
 public class StorageCipherImplementationGCM implements StorageCipher {
     private static final int keySize = 16;
@@ -24,7 +27,7 @@ public class StorageCipherImplementationGCM implements StorageCipher {
     private final String keyStoragePrefsName;
     private final Cipher cipher;
     private final SecureRandom secureRandom;
-    private final Key secretKey;
+    private Key secretKey;
 
     public StorageCipherImplementationGCM(Context context, KeyCipher rsaCipher, Cipher ignoredCipher, FlutterSecureStorageConfig config) throws Exception {
         keyStoragePrefsName = config.getEffectiveKeyStoragePrefsName();
@@ -48,6 +51,7 @@ public class StorageCipherImplementationGCM implements StorageCipher {
         byte[] key = new byte[keySize];
         secureRandom.nextBytes(key);
         secretKey = new SecretKeySpec(key, KEY_ALGORITHM);
+        Arrays.fill(key, (byte) 0);
 
         byte[] encryptedKey = rsaCipher.wrap(secretKey);
         editor.putString(SHARED_PREFERENCES_KEY, Base64.encodeToString(encryptedKey, Base64.DEFAULT));
@@ -58,6 +62,22 @@ public class StorageCipherImplementationGCM implements StorageCipher {
     public void deleteKey(Context context) {
         SharedPreferences preferences = context.getSharedPreferences(keyStoragePrefsName, Context.MODE_PRIVATE);
         preferences.edit().remove(SHARED_PREFERENCES_KEY).apply();
+        destroy();
+    }
+
+    @Override
+    public void destroy() {
+        if (secretKey instanceof Destroyable) {
+            try {
+                ((Destroyable) secretKey).destroy();
+            } catch (DestroyFailedException ignored) {
+                byte[] encoded = secretKey.getEncoded();
+                if (encoded != null) {
+                    Arrays.fill(encoded, (byte) 0);
+                }
+            }
+        }
+        secretKey = null;
     }
 
     protected Cipher getCipher() throws Exception {
@@ -66,6 +86,9 @@ public class StorageCipherImplementationGCM implements StorageCipher {
 
     @Override
     public byte[] encrypt(byte[] input) throws Exception {
+        if (secretKey == null) {
+            throw new IllegalStateException("Cipher has been destroyed");
+        }
         byte[] iv = new byte[getIvSize()];
         secureRandom.nextBytes(iv);
 
@@ -74,16 +97,23 @@ public class StorageCipherImplementationGCM implements StorageCipher {
         cipher.init(Cipher.ENCRYPT_MODE, secretKey, ivParameterSpec);
 
         byte[] payload = cipher.doFinal(input);
-        byte[] combined = new byte[iv.length + payload.length];
+        try {
+            byte[] combined = new byte[iv.length + payload.length];
 
-        System.arraycopy(iv, 0, combined, 0, iv.length);
-        System.arraycopy(payload, 0, combined, iv.length, payload.length);
+            System.arraycopy(iv, 0, combined, 0, iv.length);
+            System.arraycopy(payload, 0, combined, iv.length, payload.length);
 
-        return combined;
+            return combined;
+        } finally {
+            Arrays.fill(payload, (byte) 0);
+        }
     }
 
     @Override
     public byte[] decrypt(byte[] input) throws Exception {
+        if (secretKey == null) {
+            throw new IllegalStateException("Cipher has been destroyed");
+        }
         byte[] iv = new byte[getIvSize()];
         System.arraycopy(input, 0, iv, 0, iv.length);
         AlgorithmParameterSpec ivParameterSpec = getParameterSpec(iv);
@@ -92,9 +122,12 @@ public class StorageCipherImplementationGCM implements StorageCipher {
         byte[] payload = new byte[payloadSize];
         System.arraycopy(input, iv.length, payload, 0, payloadSize);
 
-        cipher.init(Cipher.DECRYPT_MODE, secretKey, ivParameterSpec);
-
-        return cipher.doFinal(payload);
+        try {
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, ivParameterSpec);
+            return cipher.doFinal(payload);
+        } finally {
+            Arrays.fill(payload, (byte) 0);
+        }
     }
 
     protected int getIvSize() {

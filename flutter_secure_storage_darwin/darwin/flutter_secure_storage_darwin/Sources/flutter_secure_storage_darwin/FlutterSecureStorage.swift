@@ -63,7 +63,7 @@ struct KeychainQueryParameters {
     /// `kSecUseAuthenticationUI` (iOS/macOS): Controls how authentication UI is presented during secure operations.
     var authenticationUIBehavior: String?
 
-    /// Reusable authentication context to allow biometric reuse within one operation.
+    /// Optional `kSecUseAuthenticationContext` for prompt copy and reuse duration.
     var authenticationContext: LAContext?
 
     /// `accessControlFlags` (iOS/macOS): Specifies access control settings (e.g., biometrics, passcode).
@@ -394,6 +394,16 @@ class FlutterSecureStorage {
         _ = SecItemDelete(query as CFDictionary)
     }
 
+    /// Zeroes a buffer after the secret has been delivered or wrapped.
+    private func wipe(_ data: inout Data) {
+        data.withUnsafeMutableBytes { rawBuffer in
+            if let base = rawBuffer.baseAddress, rawBuffer.count > 0 {
+                memset(base, 0, rawBuffer.count)
+            }
+        }
+        data = Data()
+    }
+
     /// Composes the companion key name used to store the wrapped AES key for a data item key.
     private func wrappedKeyName(for account: String) -> String { "fss.wrapped." + account }
 
@@ -630,7 +640,8 @@ class FlutterSecureStorage {
         if #available(iOS 13.0, macOS 10.15, *) {
             do {
                 let privateKey = try ensureEnclavePrivateKey(service: params.service)
-                let aesKeyData = try unwrapSymmetricKey(wrappedKeyData, using: privateKey)
+                var aesKeyData = try unwrapSymmetricKey(wrappedKeyData, using: privateKey)
+                defer { wipe(&aesKeyData) }
                 let key = SymmetricKey(data: aesKeyData)
                 // Encrypted blob format: nonce(12) + ciphertext+tag
                 guard encryptedData.count > 12 else {
@@ -639,24 +650,13 @@ class FlutterSecureStorage {
                 let nonceData = encryptedData.prefix(12)
                 let ctData = encryptedData.suffix(encryptedData.count - 12)
                 let sealedBox = try AES.GCM.SealedBox(nonce: AES.GCM.Nonce(data: nonceData), ciphertext: ctData.dropLast(16), tag: ctData.suffix(16))
-                let plaintext = try AES.GCM.open(sealedBox, using: key)
+                var plaintext = try AES.GCM.open(sealedBox, using: key)
+                defer { wipe(&plaintext) }
                 let value = String(data: plaintext, encoding: .utf8)
                 return FlutterSecureStorageResponse(status: errSecSuccess, value: value)
             } catch {
-                // If unwrapping fails (e.g., no enclave), gracefully fall back to standard read
-                var fallbackParams = params
-                fallbackParams.useSecureEnclave = false
-                let query = baseQuery(from: fallbackParams)
-                var ref: AnyObject?
-                let status = SecItemCopyMatching(query as CFDictionary, &ref)
-                if (status == errSecItemNotFound) {
-                    return FlutterSecureStorageResponse(status: errSecSuccess, value: nil)
-                }
-                guard status == errSecSuccess, let data = ref as? Data else {
-                    return FlutterSecureStorageResponse(status: status, value: nil)
-                }
-                let value = String(data: data, encoding: .utf8)
-                return FlutterSecureStorageResponse(status: status, value: value)
+                // Wrapped key exists but could not be unwrapped.
+                return FlutterSecureStorageResponse(status: errSecAuthFailed, value: nil)
             }
         } else {
             // Fallback for OS versions without required APIs: standard read with access control
@@ -719,7 +719,9 @@ class FlutterSecureStorage {
                 let blob = nonceBytes + sealed.ciphertext + sealed.tag
 
                 // Wrap AES key with Enclave public key
-                let wrappedKey = try wrapSymmetricKey(Data(aesKey.withUnsafeBytes { Data($0) }), using: publicKey)
+                var rawKey = Data(aesKey.withUnsafeBytes { Data($0) })
+                defer { wipe(&rawKey) }
+                let wrappedKey = try wrapSymmetricKey(rawKey, using: publicKey)
 
                 // Store wrapped key under companion account
                 var keyParams = params

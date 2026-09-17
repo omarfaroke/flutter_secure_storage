@@ -8,6 +8,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyInfo;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import android.util.Log;
@@ -24,6 +25,7 @@ import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.GCMParameterSpec;
 
 class KeyCipherImplementationAES23 implements KeyCipher {
@@ -33,6 +35,8 @@ class KeyCipherImplementationAES23 implements KeyCipher {
     private static final String SHARED_PREFERENCES_KEY = "KeyStoreIV1";
     private static final int IV_SIZE = 16;
     private static final int KEY_SIZE = 256;
+    // Long enough to finish unwrap after the prompt; not a process-lifetime cache.
+    private static final int PER_OPERATION_AUTH_VALIDITY_SECONDS = 10;
     protected final String keyAlias;
 
     protected final Context context;
@@ -85,6 +89,24 @@ class KeyCipherImplementationAES23 implements KeyCipher {
 
         SharedPreferences preferences = context.getSharedPreferences(config.getEffectiveKeyStoragePrefsName(), Context.MODE_PRIVATE);
         preferences.edit().remove(SHARED_PREFERENCES_KEY).apply();
+    }
+
+    @Override
+    public boolean isUserAuthenticationBoundToEveryUse() {
+        try {
+            KeyStore ks = KeyStore.getInstance(KEYSTORE_PROVIDER_ANDROID);
+            ks.load(null);
+            Key key = ks.getKey(keyAlias, null);
+            if (!(key instanceof SecretKey)) {
+                return false;
+            }
+            SecretKeyFactory factory = SecretKeyFactory.getInstance(key.getAlgorithm(), KEYSTORE_PROVIDER_ANDROID);
+            KeyInfo info = (KeyInfo) factory.getKeySpec((SecretKey) key, KeyInfo.class);
+            return info.isUserAuthenticationRequired()
+                    && info.getUserAuthenticationValidityDurationSeconds() == -1;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @Override
@@ -167,18 +189,7 @@ class KeyCipherImplementationAES23 implements KeyCipher {
 
         // Set authentication requirement based on device security
         if (deviceHasSecurity) {
-            builder.setUserAuthenticationRequired(true);
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                int authTypes = config.isStrongBiometricOnly()
-                        ? AUTH_BIOMETRIC_STRONG
-                        : AUTH_DEVICE_CREDENTIAL | AUTH_BIOMETRIC_STRONG;
-                builder.setUserAuthenticationParameters(0, authTypes);
-            } else {
-                configureLegacyAuth(builder);
-            }
-
-            builder.setInvalidatedByBiometricEnrollment(true);
+            configureUserAuthentication(builder);
         } else {
             // Explicitly set to false for clarity (default behavior)
             builder.setUserAuthenticationRequired(false);
@@ -212,20 +223,8 @@ class KeyCipherImplementationAES23 implements KeyCipher {
                         .setKeySize(KEY_SIZE)
                         .setUnlockedDeviceRequired(true);
 
-                // Only require user authentication if device has security configured
                 if (deviceHasSecurity) {
-                    builder.setUserAuthenticationRequired(true);
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        int authTypes = config.isStrongBiometricOnly()
-                                ? AUTH_BIOMETRIC_STRONG
-                                : AUTH_DEVICE_CREDENTIAL | AUTH_BIOMETRIC_STRONG;
-                        builder.setUserAuthenticationParameters(0, authTypes);
-                    } else {
-                        configureLegacyAuth(builder);
-                    }
-
-                    builder.setInvalidatedByBiometricEnrollment(true);
+                    configureUserAuthentication(builder);
                 }
 
                 keyGenerator.init(builder.build());
@@ -238,11 +237,35 @@ class KeyCipherImplementationAES23 implements KeyCipher {
     }
 
     /**
+     * CryptoObject-bound keys ({@code timeout == 0}) let the system skip the sheet after the first
+     * success in a process. Per-operation mode uses a short validity window instead so an
+     * unbound BiometricPrompt can be shown on every read/write.
+     */
+    private void configureUserAuthentication(KeyGenParameterSpec.Builder builder) {
+        builder.setUserAuthenticationRequired(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            int authTypes = config.isStrongBiometricOnly()
+                    ? AUTH_BIOMETRIC_STRONG
+                    : AUTH_DEVICE_CREDENTIAL | AUTH_BIOMETRIC_STRONG;
+            int timeout = config.getRequireBiometricsPerOperation()
+                    ? PER_OPERATION_AUTH_VALIDITY_SECONDS
+                    : 0;
+            builder.setUserAuthenticationParameters(timeout, authTypes);
+        } else {
+            configureLegacyAuth(builder);
+        }
+        builder.setInvalidatedByBiometricEnrollment(true);
+    }
+
+    /**
      * Separate function due to build procedure still marking this as deprecated.
      */
     @SuppressWarnings({"deprecation", "RedundantSuppression"})
     private void configureLegacyAuth(KeyGenParameterSpec.Builder builder) {
-        builder.setUserAuthenticationValidityDurationSeconds(-1);
+        int timeout = config.getRequireBiometricsPerOperation()
+                ? PER_OPERATION_AUTH_VALIDITY_SECONDS
+                : -1;
+        builder.setUserAuthenticationValidityDurationSeconds(timeout);
     }
 
 

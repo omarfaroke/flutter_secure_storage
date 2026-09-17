@@ -8,4 +8,7 @@ public interface StorageCipher {
     byte[] decrypt(byte[] input) throws Exception;
 
     void deleteKey(Context context) throws Exception;
+
+    /** Clears in-memory key material. Safe to call more than once. */
+    default void destroy() {}
 }

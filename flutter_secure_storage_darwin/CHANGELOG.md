@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* Apply `description` and `localizedCancelTitle` on the system prompt
+* Default biometric reuse duration to 0 so each `read` / `write` shows a new prompt (one `LAContext` is still shared inside a single method call)
+* Wipe AES key and plaintext buffers after a Secure Enclave read/write
+* Fail closed when a wrapped Secure Enclave key cannot be unwrapped
+
+### Bug Fixes
+
 ## [0.4.3](https://github.com/juliansteenbakker/flutter_secure_storage/compare/flutter_secure_storage_darwin-v0.4.2...flutter_secure_storage_darwin-v0.4.3) (2026-09-16)
 
 

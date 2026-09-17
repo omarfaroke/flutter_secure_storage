@@ -132,4 +132,16 @@ public class StorageCipherTest {
         assertArrayEquals(plaintext, fresh.decrypt(fresh.encrypt(plaintext)));
     }
 
+    @Test
+    public void gcm_destroy_rejectsFurtherUse() throws Exception {
+        StorageCipherImplementationGCM cipher = new StorageCipherImplementationGCM(context, new FakeKeyCipher(), null, defaultConfig);
+        cipher.destroy();
+        try {
+            cipher.encrypt("nope".getBytes(StandardCharsets.UTF_8));
+            org.junit.Assert.fail("Expected IllegalStateException after destroy");
+        } catch (IllegalStateException expected) {
+            org.junit.Assert.assertTrue(expected.getMessage().contains("destroyed"));
+        }
+    }
+
 }

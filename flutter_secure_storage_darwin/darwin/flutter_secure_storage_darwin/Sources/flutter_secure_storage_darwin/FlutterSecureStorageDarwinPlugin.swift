@@ -190,17 +190,53 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
             useSecureEnclave: (options["useSecureEnclave"] as? String).flatMap { Bool($0) }
         )
 
-        // Reuse a single authentication context to avoid multiple prompts per call
-        // when Secure Enclave is explicitly enabled.
-        if parameters.useSecureEnclave == true {
+        // One LAContext per method call. `localizedReason` must be set or the
+        // system prompt is suppressed. Duration 0 (default) does not reuse a
+        // prior evaluation across later read/write calls.
+        if needsAuthenticationContext(parameters) {
             if #available(iOS 9.0, macOS 10.12, *) {
                 let context = LAContext()
-                context.touchIDAuthenticationAllowableReuseDuration = 30
+                context.interactionNotAllowed = false
+                context.localizedReason = promptReason(from: options, parameters: parameters)
+                let cancelTitle = (options["localizedCancelTitle"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let cancelTitle, !cancelTitle.isEmpty {
+                    context.localizedCancelTitle = cancelTitle
+                }
+                let reuse = (options["biometricReuseDurationSeconds"] as? String)
+                    .flatMap { TimeInterval($0) } ?? 0
+                context.touchIDAuthenticationAllowableReuseDuration = min(max(reuse, 0), 300)
                 parameters.authenticationContext = context
             }
         }
 
         return (parameters, value)
+    }
+
+    /// `kSecUseAuthenticationContext` when this call uses access control or Secure Enclave.
+    private func needsAuthenticationContext(_ parameters: KeychainQueryParameters) -> Bool {
+        if parameters.useSecureEnclave == true {
+            return true
+        }
+        let flags = parameters.accessControlFlags ?? ""
+        return flags.contains("biometry") || flags.contains("userPresence")
+    }
+
+    /// `LAContext.localizedReason` is required for the system prompt to appear.
+    private func promptReason(from options: [String: Any?], parameters: KeychainQueryParameters) -> String {
+        let candidates: [String?] = [
+            options["description"] as? String,
+            parameters.itemDescription,
+            options["label"] as? String,
+            parameters.itemLabel,
+        ]
+        for candidate in candidates {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return "Authenticate to access"
     }
 
     private func handleResponse(_ response: FlutterSecureStorageResponse, _ result: @escaping FlutterResult) {
