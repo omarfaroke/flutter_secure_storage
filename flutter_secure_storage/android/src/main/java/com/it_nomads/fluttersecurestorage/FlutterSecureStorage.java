@@ -1470,9 +1470,11 @@ public class FlutterSecureStorage {
     }
 
     private static boolean isBiometricCanceled(int errorCode) {
-        return errorCode == BiometricPrompt.ERROR_USER_CANCELED
-                || errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON
-                || errorCode == BiometricPrompt.ERROR_CANCELED;
+        // Framework BiometricPrompt error codes (API 28). Named fields are not
+        // always present on the compile SDK used by this plugin.
+        return errorCode == 10 // ERROR_USER_CANCELED
+                || errorCode == 13 // ERROR_NEGATIVE_BUTTON
+                || errorCode == 5; // ERROR_CANCELED
     }
 
     private static boolean isPostAuthKeyInvalidated(Exception e) {
