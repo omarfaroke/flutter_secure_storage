@@ -11,6 +11,8 @@
 
 ### Bug Fixes
 
+* Report Keychain user-cancel (`errSecUserCanceled`) as `BIOMETRIC_CANCELED`
+
 ## [0.4.3](https://github.com/juliansteenbakker/flutter_secure_storage/compare/flutter_secure_storage_darwin-v0.4.2...flutter_secure_storage_darwin-v0.4.3) (2026-09-16)
 
 

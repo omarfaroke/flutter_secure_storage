@@ -307,10 +307,14 @@ public class FlutterSecureStoragePlugin implements MethodCallHandler, FlutterPlu
 
 
         private void handleException(Throwable e) {
+            String errorMessage = e.getMessage() != null ? e.getMessage() : "Unknown error";
+            if (errorMessage.startsWith("BIOMETRIC_CANCELED")) {
+                result.error("BIOMETRIC_CANCELED", errorMessage, null);
+                return;
+            }
             StringWriter stringWriter = new StringWriter();
             e.printStackTrace(new PrintWriter(stringWriter));
             // Send exception message as the message field so Flutter can parse it
-            String errorMessage = e.getMessage() != null ? e.getMessage() : "Unknown error";
             result.error("Exception encountered", errorMessage, stringWriter.toString());
         }
     }

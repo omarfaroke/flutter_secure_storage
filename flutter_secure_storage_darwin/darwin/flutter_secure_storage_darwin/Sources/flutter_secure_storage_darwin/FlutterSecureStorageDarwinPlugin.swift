@@ -3,6 +3,7 @@
 //
 
 import LocalAuthentication
+import Security
 #if os(iOS)
 import Flutter
 import UIKit
@@ -160,6 +161,10 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
         case .success(let exists):
             result(exists)
         case .failure(let error):
+            if error.status == errSecUserCanceled {
+                result(FlutterError(code: "BIOMETRIC_CANCELED", message: "BIOMETRIC_CANCELED: User canceled authentication", details: error.status))
+                return
+            }
             let errorMessage = SecCopyErrorMessageString(error.status, nil) ?? "Unknown security result code: \(error.status)" as CFString
             result(FlutterError(code: "Unexpected security result code", message: errorMessage as String, details: error.status))
         }
@@ -242,6 +247,10 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
     private func handleResponse(_ response: FlutterSecureStorageResponse, _ result: @escaping FlutterResult) {
         let status = response.status
         if status != noErr {
+            if status == errSecUserCanceled {
+                result(FlutterError(code: "BIOMETRIC_CANCELED", message: "BIOMETRIC_CANCELED: User canceled authentication", details: status))
+                return
+            }
             let errorMessage: String
             if #available(iOS 11.3, *) {
                 if let errMsg = SecCopyErrorMessageString(status, nil) {

@@ -1431,6 +1431,12 @@ public class FlutterSecureStorage {
             @Override
             public void onAuthenticationError(int errorCode, CharSequence errString) {
                 super.onAuthenticationError(errorCode, errString);
+                if (isBiometricCanceled(errorCode)) {
+                    Log.i(TAG, "Biometric authentication canceled [" + errorCode + "]: " + errString);
+                    securePreferencesCallback.onError(
+                            new Exception("BIOMETRIC_CANCELED: " + errString));
+                    return;
+                }
                 Log.e(TAG, "Biometric authentication error [" + errorCode + "]: " + errString);
                 securePreferencesCallback.onError(new Exception("Biometric authentication error [" + errorCode + "]: " + errString));
             }
@@ -1443,6 +1449,12 @@ public class FlutterSecureStorage {
         } else {
             promptInfo.authenticate(new BiometricPrompt.CryptoObject(cipher), cancellationSignal, executor, callback);
         }
+    }
+
+    private static boolean isBiometricCanceled(int errorCode) {
+        return errorCode == BiometricPrompt.ERROR_USER_CANCELED
+                || errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON
+                || errorCode == BiometricPrompt.ERROR_CANCELED;
     }
 
     /**

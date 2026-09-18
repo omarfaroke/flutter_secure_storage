@@ -10,6 +10,11 @@
 * **android,darwin:** wipe key material and plaintext after a successful read or write
 * **darwin:** fail closed when a Secure Enclave wrapped key cannot be unwrapped
 
+### Bug Fixes
+
+* **android:** report a dismissed biometric prompt as `BIOMETRIC_CANCELED` instead of `Exception encountered`
+* **darwin:** report Keychain user-cancel (`errSecUserCanceled`) as `BIOMETRIC_CANCELED`
+
 ## [11.2.0](https://github.com/juliansteenbakker/flutter_secure_storage/compare/flutter_secure_storage-v11.1.1...flutter_secure_storage-v11.2.0) (2026-09-16)
 
 
