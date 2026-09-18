@@ -112,6 +112,26 @@ class KeyCipherImplementationAES23 implements KeyCipher {
     }
 
     @Override
+    public boolean isInvalidatedByBiometricEnrollment() {
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+                return false;
+            }
+            KeyStore ks = KeyStore.getInstance(KEYSTORE_PROVIDER_ANDROID);
+            ks.load(null);
+            Key key = ks.getKey(keyAlias, null);
+            if (!(key instanceof SecretKey)) {
+                return false;
+            }
+            SecretKeyFactory factory = SecretKeyFactory.getInstance(key.getAlgorithm(), KEYSTORE_PROVIDER_ANDROID);
+            KeyInfo info = (KeyInfo) factory.getKeySpec((SecretKey) key, KeyInfo.class);
+            return info.isInvalidatedByBiometricEnrollment();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Override
     public boolean isPermanentlyInvalidated() {
         try {
             KeyStore ks = KeyStore.getInstance(KEYSTORE_PROVIDER_ANDROID);
@@ -283,7 +303,9 @@ class KeyCipherImplementationAES23 implements KeyCipher {
         } else {
             configureLegacyAuth(builder);
         }
-        builder.setInvalidatedByBiometricEnrollment(true);
+        // Adding/removing a fingerprint must not destroy the wrapping key.
+        // Per-operation BiometricPrompt still gates every read/write.
+        builder.setInvalidatedByBiometricEnrollment(false);
     }
 
     /**

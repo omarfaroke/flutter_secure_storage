@@ -171,6 +171,7 @@ For advanced users, all combinations below are supported using the `AndroidOptio
 - **`requireBiometricsPerOperation` parameter** (default: `true` for `AndroidOptions.biometric()`):
     - `true`: Prompt on every `read` / `write` / `readAll`
     - `false`: Unlock once for the process lifetime
+- Biometric wrapping keys stay valid when the user adds or removes a fingerprint. Each `read` / `write` still shows a system prompt.
 
 #### Migration with Backup Protection
 
@@ -361,12 +362,14 @@ Use `accessControlFlags` so Keychain items require Face ID, Touch ID, or the dev
 final storage = FlutterSecureStorage(
   iOptions: IOSOptions(
     accessibility: KeychainAccessibility.passcode,
-    accessControlFlags: [AccessControlFlag.biometryCurrentSet],
+    accessControlFlags: [AccessControlFlag.biometryAny],
     description: 'Authenticate to access your data',
     localizedCancelTitle: 'Cancel',
   ),
 );
 ```
+
+`biometryAny` keeps the item if the user adds or removes a fingerprint. Use `biometryCurrentSet` only when the item must be invalidated by an enrollment change.
 
 ### Web
 

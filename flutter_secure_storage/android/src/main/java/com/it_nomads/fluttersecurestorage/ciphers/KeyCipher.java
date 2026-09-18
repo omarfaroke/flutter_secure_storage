@@ -31,4 +31,12 @@ public interface KeyCipher {
     default boolean isPermanentlyInvalidated() {
         return false;
     }
+
+    /**
+     * True when this wrapping key was created with {@code setInvalidatedByBiometricEnrollment(true)}.
+     * Those keys should be rewrapped onto a key that survives enrollment changes.
+     */
+    default boolean isInvalidatedByBiometricEnrollment() {
+        return false;
+    }
 }

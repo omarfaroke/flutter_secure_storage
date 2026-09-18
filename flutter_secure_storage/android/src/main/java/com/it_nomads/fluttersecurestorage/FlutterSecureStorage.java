@@ -242,6 +242,8 @@ public class FlutterSecureStorage {
                 StorageCipherImplementationAES23.clearWrappedApplicationKey(context, config);
                 keyCipher.deleteKey();
             }
+            final boolean rewrapKey = keyCipher.isUserAuthenticationBoundToEveryUse()
+                    || keyCipher.isInvalidatedByBiometricEnrollment();
             if (keyCipher.isUserAuthenticationBoundToEveryUse()) {
                 Cipher pending = keyCipher.getCipher(context);
                 authenticateUser(pending, new SecurePreferencesCallback<>() {
@@ -266,7 +268,7 @@ public class FlutterSecureStorage {
                 public void onSuccess(BiometricPrompt.AuthenticationResult unused) {
                     try {
                         Cipher cipher = storageCipherFactory.getCurrentKeyCipher(context).getCipher(context);
-                        completeWithAuthorizedCipher(cipher, callback, isRetryAfterRecovery, false);
+                        completeWithAuthorizedCipher(cipher, callback, isRetryAfterRecovery, rewrapKey);
                     } catch (Exception e) {
                         callback.onError(isPostAuthKeyInvalidated(e) ? keyInvalidatedError(e) : e);
                     }
