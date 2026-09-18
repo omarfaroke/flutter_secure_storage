@@ -312,6 +312,11 @@ public class FlutterSecureStoragePlugin implements MethodCallHandler, FlutterPlu
                 result.error("BIOMETRIC_CANCELED", errorMessage, null);
                 return;
             }
+            if (errorMessage.startsWith("BIOMETRIC_KEY_INVALIDATED")
+                    || "User not authenticated".equals(errorMessage)) {
+                result.error("BIOMETRIC_KEY_INVALIDATED", errorMessage, null);
+                return;
+            }
             StringWriter stringWriter = new StringWriter();
             e.printStackTrace(new PrintWriter(stringWriter));
             // Send exception message as the message field so Flutter can parse it

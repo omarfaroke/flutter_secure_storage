@@ -9,7 +9,9 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyInfo;
+import android.security.keystore.KeyPermanentlyInvalidatedException;
 import android.security.keystore.KeyProperties;
+import android.security.keystore.UserNotAuthenticatedException;
 import android.util.Base64;
 import android.util.Log;
 
@@ -105,6 +107,33 @@ class KeyCipherImplementationAES23 implements KeyCipher {
             return info.isUserAuthenticationRequired()
                     && info.getUserAuthenticationValidityDurationSeconds() == -1;
         } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Override
+    public boolean isPermanentlyInvalidated() {
+        try {
+            KeyStore ks = KeyStore.getInstance(KEYSTORE_PROVIDER_ANDROID);
+            ks.load(null);
+            Key key = ks.getKey(keyAlias, null);
+            SharedPreferences preferences = context.getSharedPreferences(
+                    config.getEffectiveKeyStoragePrefsName(), Context.MODE_PRIVATE);
+            boolean hasWrappedKey = StorageCipherImplementationAES23.hasApplicationKey(preferences);
+            if (key == null) {
+                return hasWrappedKey;
+            }
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, key);
+            return false;
+        } catch (UserNotAuthenticatedException e) {
+            return false;
+        } catch (KeyPermanentlyInvalidatedException e) {
+            return true;
+        } catch (java.security.UnrecoverableKeyException e) {
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "Could not probe wrapping key", e);
             return false;
         }
     }

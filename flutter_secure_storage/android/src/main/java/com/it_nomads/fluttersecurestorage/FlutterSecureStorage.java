@@ -7,6 +7,7 @@ import android.hardware.biometrics.BiometricManager;
 import android.hardware.biometrics.BiometricPrompt;
 import android.os.Build;
 import android.os.CancellationSignal;
+import android.security.keystore.KeyPermanentlyInvalidatedException;
 import android.security.keystore.UserNotAuthenticatedException;
 import android.util.Base64;
 import android.util.Log;
@@ -153,7 +154,7 @@ public class FlutterSecureStorage {
             public void onError(Exception e) {
                 callback.onError(e);
             }
-        });
+        }, false, true);
     }
 
     private void writeUnsafe(StorageCipher cipher, String key, String value) throws Exception {
@@ -178,10 +179,16 @@ public class FlutterSecureStorage {
      * authenticated cipher is created, then discarded after the call.
      */
     private void withStorageCipher(SecurePreferencesCallback<StorageCipher> callback) {
-        withStorageCipher(callback, false);
+        withStorageCipher(callback, false, false);
     }
 
     private void withStorageCipher(SecurePreferencesCallback<StorageCipher> callback, boolean isRetryAfterRecovery) {
+        withStorageCipher(callback, isRetryAfterRecovery, false);
+    }
+
+    private void withStorageCipher(SecurePreferencesCallback<StorageCipher> callback,
+                                   boolean isRetryAfterRecovery,
+                                   boolean replaceInvalidatedKey) {
         if (config.getRequireBiometricsPerOperation() && storageCipher != null) {
             storageCipher.destroy();
             storageCipher = null;
@@ -192,7 +199,7 @@ public class FlutterSecureStorage {
         }
 
         if (config.getRequireBiometricsPerOperation()) {
-            authenticateForEachOperation(callback, isRetryAfterRecovery);
+            authenticateForEachOperation(callback, isRetryAfterRecovery, replaceInvalidatedKey);
             return;
         }
 
@@ -223,9 +230,18 @@ public class FlutterSecureStorage {
      * a CryptoObject, then rewrapped to the per-operation scheme.
      */
     private void authenticateForEachOperation(SecurePreferencesCallback<StorageCipher> callback,
-                                              boolean isRetryAfterRecovery) {
+                                              boolean isRetryAfterRecovery,
+                                              boolean replaceInvalidatedKey) {
         try {
             KeyCipher keyCipher = storageCipherFactory.getCurrentKeyCipher(context);
+            if (keyCipher.isPermanentlyInvalidated()) {
+                if (!replaceInvalidatedKey) {
+                    callback.onError(keyInvalidatedError(null));
+                    return;
+                }
+                StorageCipherImplementationAES23.clearWrappedApplicationKey(context, config);
+                keyCipher.deleteKey();
+            }
             if (keyCipher.isUserAuthenticationBoundToEveryUse()) {
                 Cipher pending = keyCipher.getCipher(context);
                 authenticateUser(pending, new SecurePreferencesCallback<>() {
@@ -252,7 +268,7 @@ public class FlutterSecureStorage {
                         Cipher cipher = storageCipherFactory.getCurrentKeyCipher(context).getCipher(context);
                         completeWithAuthorizedCipher(cipher, callback, isRetryAfterRecovery, false);
                     } catch (Exception e) {
-                        callback.onError(e);
+                        callback.onError(isPostAuthKeyInvalidated(e) ? keyInvalidatedError(e) : e);
                     }
                 }
 
@@ -280,8 +296,8 @@ public class FlutterSecureStorage {
             }
             callback.onSuccess(freshCipher);
         } catch (Exception e) {
-            if (isRetryAfterRecovery) {
-                callback.onError(e);
+            if (isRetryAfterRecovery || isPostAuthKeyInvalidated(e)) {
+                callback.onError(isPostAuthKeyInvalidated(e) ? keyInvalidatedError(e) : e);
                 return;
             }
             NamespacedConfigSource configSource =
@@ -1455,6 +1471,15 @@ public class FlutterSecureStorage {
         return errorCode == BiometricPrompt.ERROR_USER_CANCELED
                 || errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON
                 || errorCode == BiometricPrompt.ERROR_CANCELED;
+    }
+
+    private static boolean isPostAuthKeyInvalidated(Exception e) {
+        return e instanceof UserNotAuthenticatedException
+                || e instanceof KeyPermanentlyInvalidatedException;
+    }
+
+    private static Exception keyInvalidatedError(@Nullable Throwable cause) {
+        return new Exception("BIOMETRIC_KEY_INVALIDATED: Wrapping key is no longer usable", cause);
     }
 
     /**

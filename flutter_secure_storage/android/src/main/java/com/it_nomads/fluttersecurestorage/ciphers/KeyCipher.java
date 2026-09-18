@@ -23,4 +23,12 @@ public interface KeyCipher {
     default boolean isUserAuthenticationBoundToEveryUse() {
         return false;
     }
+
+    /**
+     * True when the wrapping key cannot be used even after a successful biometric prompt
+     * (for example after a fingerprint was added or removed).
+     */
+    default boolean isPermanentlyInvalidated() {
+        return false;
+    }
 }
