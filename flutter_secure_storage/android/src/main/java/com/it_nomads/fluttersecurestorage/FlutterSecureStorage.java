@@ -1429,6 +1429,12 @@ public class FlutterSecureStorage {
             Log.i(TAG, "Biometric authentication canceled via negative button");
             securePreferencesCallback.onError(
                     new Exception("BIOMETRIC_CANCELED: Negative button tapped"));
+            // Framework BiometricPrompt only delivers DISMISSED_REASON_NEGATIVE to this
+            // listener (not onAuthenticationError). Still cancel the signal so the
+            // biometric session is released — otherwise the next authenticate() never
+            // shows a prompt. If cancel also emits onAuthenticationError, settled
+            // ignores the duplicate.
+            cancellationSignal.cancel();
         };
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
