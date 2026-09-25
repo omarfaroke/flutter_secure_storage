@@ -22,7 +22,7 @@ public class StorageCipherImplementationAES23 implements StorageCipher {
     private static final int AUTHENTICATION_TAG_SIZE = 128;
     private static final String KEY_ALGORITHM = "AES";
     private static final String KEYSTORE_IV_NAME = "BVGhpcyBpcyB0aGUga2V5IGZvciBhIHNlY3VyZSBzdG9yYWdlIEFFUyBLZXkK";
-    public static final String APP_KEY_PREF = KEYSTORE_IV_NAME;
+    static final String APP_KEY_PREF = KEYSTORE_IV_NAME;
     private final String keyStoragePrefsName;
     private final Cipher cipher;
     private final SecureRandom secureRandom;
@@ -35,7 +35,7 @@ public class StorageCipherImplementationAES23 implements StorageCipher {
         this.secretKey = loadOrGenerateApplicationKey(context, cipher);
     }
 
-    public static boolean hasApplicationKey(SharedPreferences preferences) {
+    static boolean hasApplicationKey(SharedPreferences preferences) {
         return preferences.contains(KEYSTORE_IV_NAME);
     }
 

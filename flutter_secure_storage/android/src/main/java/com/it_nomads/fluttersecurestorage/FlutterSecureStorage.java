@@ -21,12 +21,10 @@ import androidx.annotation.Nullable;
 import com.it_nomads.fluttersecurestorage.ciphers.BiometricNamespaceKeyRecovery;
 import com.it_nomads.fluttersecurestorage.ciphers.KeyCipher;
 import com.it_nomads.fluttersecurestorage.ciphers.KeyCipherAlgorithm;
-import com.it_nomads.fluttersecurestorage.ciphers.KeystoreDirectMigration;
 import com.it_nomads.fluttersecurestorage.ciphers.LegacyNamespaceKeyRecovery;
 import com.it_nomads.fluttersecurestorage.ciphers.StorageCipher;
 import com.it_nomads.fluttersecurestorage.ciphers.StorageCipherFactory;
 import com.it_nomads.fluttersecurestorage.ciphers.StorageCipherImplementationAES23;
-import com.it_nomads.fluttersecurestorage.ciphers.StorageCipherImplementationKeystoreGcm;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -253,9 +251,9 @@ public class FlutterSecureStorage {
 
     /**
      * Authenticates each read/write with a CryptoObject-bound BiometricPrompt so the
-     * biometric event unlocks the Keystore Cipher. A short Keystore auth-validity
-     * window then allows multiple value encrypt/decrypt inits (e.g. readAll).
-     * Unbound prompts remain only for legacy keys that do not require CryptoObject unlock.
+     * biometric event unlocks the wrapping Cipher. Legacy keys that used a validity
+     * window keep an unbound prompt (no automatic rewrap; deleteAll / re-enroll for
+     * the stronger every-use binding).
      */
     private void authenticateForEachOperation(SecurePreferencesCallback<StorageCipher> callback,
                                               boolean isRetryAfterRecovery,
@@ -270,7 +268,7 @@ public class FlutterSecureStorage {
                 StorageCipherImplementationAES23.clearWrappedApplicationKey(context, config);
                 keyCipher.deleteKey();
             }
-            if (keyCipher.requiresCryptoObjectUnlock() || keyCipher.isUserAuthenticationBoundToEveryUse()) {
+            if (keyCipher.isUserAuthenticationBoundToEveryUse()) {
                 Cipher pending = keyCipher.getCipher(context);
                 authenticateUser(pending, new SecurePreferencesCallback<>() {
                     @Override
@@ -315,18 +313,7 @@ public class FlutterSecureStorage {
                                              boolean isRetryAfterRecovery) {
         StorageCipher freshCipher = null;
         try {
-            SharedPreferences keyPrefs = context.getSharedPreferences(
-                    config.getEffectiveKeyStoragePrefsName(), Context.MODE_PRIVATE);
-            boolean legacyAppKey = StorageCipherImplementationAES23.hasApplicationKey(keyPrefs);
-
             freshCipher = storageCipherFactory.getCurrentStorageCipher(context, authorized);
-
-            if (legacyAppKey) {
-                StorageCipher migrated = migrateLegacyAppKeyStoreToKeystoreDirect(freshCipher);
-                freshCipher.destroy();
-                freshCipher = migrated;
-            }
-
             callback.onSuccess(freshCipher);
         } catch (Exception e) {
             if (isRetryAfterRecovery || isPostAuthKeyInvalidated(e)) {
@@ -351,38 +338,6 @@ public class FlutterSecureStorage {
                 freshCipher.destroy();
             }
         }
-    }
-
-    /**
-     * One-time upgrade from wrapped software app key to Keystore-direct GCM.
-     * On failure, legacy prefs are left intact and the error is surfaced.
-     */
-    private StorageCipher migrateLegacyAppKeyStoreToKeystoreDirect(StorageCipher legacyCipher)
-            throws Exception {
-        if (!(legacyCipher instanceof StorageCipherImplementationAES23)) {
-            throw new IllegalStateException("Legacy migration expected AES23 storage cipher");
-        }
-        KeyCipher keyCipher = storageCipherFactory.getCurrentKeyCipher(context);
-        if (!keyCipher.usesKeystoreAesKey()) {
-            throw new IllegalStateException("Legacy migration expected AES Keystore key cipher");
-        }
-        if (preferences == null) {
-            throw new IllegalStateException("Preferences not initialized for migration");
-        }
-
-        StorageCipherImplementationKeystoreGcm direct =
-                new StorageCipherImplementationKeystoreGcm(keyCipher.getKeystoreAesKey());
-
-        SharedPreferences keyPrefs = context.getSharedPreferences(
-                config.getEffectiveKeyStoragePrefsName(), Context.MODE_PRIVATE);
-        KeystoreDirectMigration.migrate(
-                preferences,
-                config.getSharedPreferencesKeyPrefix(),
-                legacyCipher,
-                direct,
-                keyPrefs);
-        legacyCipher.destroy();
-        return direct;
     }
 
     public void delete(String key) {
