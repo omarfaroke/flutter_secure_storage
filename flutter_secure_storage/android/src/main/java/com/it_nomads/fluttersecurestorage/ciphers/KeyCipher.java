@@ -17,7 +17,8 @@ public interface KeyCipher {
     Key unwrap(byte[] wrappedKey, String algorithm) throws Exception;
 
     /**
-     * True when the wrapping key requires a CryptoObject for every use ({@code timeout == 0}).
+     * True when the wrapping key requires a CryptoObject for every use
+     * ({@code timeout == 0} on API 30+, or validity duration {@code -1} on older APIs).
      * Those keys let BiometricPrompt skip the UI after the first success in a process.
      */
     default boolean isUserAuthenticationBoundToEveryUse() {

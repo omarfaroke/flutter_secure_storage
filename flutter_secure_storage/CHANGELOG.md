@@ -14,6 +14,7 @@
 
 ### Bug Fixes
 
+* **android:** treat KeyInfo validity `0` (API 30+ every-use) as CryptoObject-bound, not unbound; stop auth-token failures from triggering AES→AES biometric migration loops
 * **android:** complete the pending Future when the biometric negative button is tapped (`strongBiometricOnly`); framework `BiometricPrompt` only invokes the button listener, not `onAuthenticationError`. Also cancel the `CancellationSignal` after completing so the next prompt can show.
 * **android:** report a dismissed biometric prompt as `BIOMETRIC_CANCELED` instead of `Exception encountered`
 * **darwin:** report Keychain user-cancel (`errSecUserCanceled`) as `BIOMETRIC_CANCELED`

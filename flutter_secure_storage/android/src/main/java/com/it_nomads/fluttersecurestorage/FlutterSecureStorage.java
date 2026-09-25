@@ -320,6 +320,14 @@ public class FlutterSecureStorage {
                 callback.onError(isPostAuthKeyInvalidated(e) ? keyInvalidatedError(e) : e);
                 return;
             }
+            // Auth-token failures after a successful BiometricPrompt are not algorithm
+            // mismatches. Migrating re-prompts forever (AES→AES biometric "migration").
+            if (isUserNotAuthenticatedFailure(e)) {
+                Log.e(TAG, "Keystore rejected the cipher after biometric auth "
+                        + "(missing auth token / wrong CryptoObject binding)", e);
+                callback.onError(e);
+                return;
+            }
             NamespacedConfigSource configSource =
                     new NamespacedConfigSource(context, config.getEffectiveDataPrefsName());
             handleKeyMismatch(configSource, new SecurePreferencesCallback<>() {
@@ -567,6 +575,17 @@ public class FlutterSecureStorage {
             // Key type doesn't match cipher requirements, typically after algorithm change
             handleKeyMismatch(configSource, callback, e, "Invalid key, key type incompatible with cipher");
         } catch (javax.crypto.IllegalBlockSizeException e) {
+            // Keystore2 often wraps KEY_USER_NOT_AUTHENTICATED in IllegalBlockSizeException
+            // instead of UserNotAuthenticatedException. Do not treat that as algorithm change.
+            if (isUserNotAuthenticatedFailure(e)) {
+                if (config.getRequireBiometricsPerOperation()) {
+                    storageCipher = null;
+                    callback.onSuccess(null);
+                    return;
+                }
+                callback.onError(e);
+                return;
+            }
             // Wrong cipher mode or block size, typically after algorithm change
             handleKeyMismatch(configSource, callback, e, "Illegal block size, wrong cipher configuration");
         } catch (java.security.NoSuchAlgorithmException e) {
@@ -1514,8 +1533,40 @@ public class FlutterSecureStorage {
     }
 
     private static boolean isPostAuthKeyInvalidated(Exception e) {
-        return e instanceof UserNotAuthenticatedException
-                || e instanceof KeyPermanentlyInvalidatedException;
+        // UserNotAuthenticatedException means the CryptoObject/auth window was missing,
+        // not that the key was permanently invalidated by enrollment changes.
+        return e instanceof KeyPermanentlyInvalidatedException
+                || hasCause(e, KeyPermanentlyInvalidatedException.class);
+    }
+
+    /**
+     * True when Keystore refused the crypto op because no (or wrong) auth token was
+     * attached — typically unbound BiometricPrompt used with an every-use key.
+     * Surfaces as {@link UserNotAuthenticatedException} or {@link javax.crypto.IllegalBlockSizeException}
+     * wrapping Keystore {@code KEY_USER_NOT_AUTHENTICATED} (-26).
+     */
+    private static boolean isUserNotAuthenticatedFailure(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof UserNotAuthenticatedException) {
+                return true;
+            }
+            String message = t.getMessage();
+            if (message != null && (message.contains("Key user not authenticated")
+                    || message.contains("KEY_USER_NOT_AUTHENTICATED")
+                    || message.contains("internal Keystore code: -26"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasCause(Throwable e, Class<? extends Throwable> type) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (type.isInstance(t)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Exception keyInvalidatedError(@Nullable Throwable cause) {

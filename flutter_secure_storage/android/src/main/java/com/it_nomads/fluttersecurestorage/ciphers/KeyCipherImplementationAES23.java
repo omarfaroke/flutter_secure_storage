@@ -105,10 +105,16 @@ class KeyCipherImplementationAES23 implements KeyCipher {
             }
             SecretKeyFactory factory = SecretKeyFactory.getInstance(key.getAlgorithm(), KEYSTORE_PROVIDER_ANDROID);
             KeyInfo info = (KeyInfo) factory.getKeySpec((SecretKey) key, KeyInfo.class);
-            return info.isUserAuthenticationRequired()
-                    && info.getUserAuthenticationValidityDurationSeconds() == -1;
+            // API 23–29: setUserAuthenticationValidityDurationSeconds(-1) → KeyInfo reports -1.
+            // API 30+: setUserAuthenticationParameters(0, …) → KeyInfo reports 0.
+            // Both mean auth is required for every cryptographic use (CryptoObject-bound).
+            int validitySeconds = info.getUserAuthenticationValidityDurationSeconds();
+            return info.isUserAuthenticationRequired() && validitySeconds <= 0;
         } catch (Exception e) {
-            return false;
+            // Prefer CryptoObject when KeyInfo cannot be read: unbound prompts leave
+            // every-use keys unlocked for Cipher.init but fail at doFinal.
+            Log.w(TAG, "Could not read KeyInfo for every-use check; assuming CryptoObject binding", e);
+            return true;
         }
     }
 
