@@ -72,9 +72,15 @@ public class StorageCipherFactoryTest {
 
     @Test
     public void noSavedMarkers_savedAlgorithmsDefaultToCurrent() {
-        // With no markers, saved algorithms are the v11 defaults (OAEP+GCM).
-        // Current is also OAEP+GCM, so no re-encryption is required.
+        // With no markers, saved algorithms match the configured current algorithms.
         assertFalse(factory("RSA_ECB_OAEPwithSHA_256andMGF1Padding", "AES_GCM_NoPadding")
+                .requiresReEncryption());
+    }
+
+    @Test
+    public void noSavedMarkers_biometricCurrent_doesNotRequireReEncryption() {
+        // First biometric write must not fake an RSA→AES migration (extra prompt).
+        assertFalse(factory("AES_GCM_NoPadding", "AES_GCM_NoPadding")
                 .requiresReEncryption());
     }
 
@@ -84,6 +90,14 @@ public class StorageCipherFactoryTest {
 
         assertEquals("RSA_ECB_OAEPwithSHA_256andMGF1Padding", namespacedPrefs.getString(PREF_KEY_ALGORITHM, null));
         assertEquals("AES_GCM_NoPadding",                     namespacedPrefs.getString(PREF_STORAGE_ALGORITHM, null));
+    }
+
+    @Test
+    public void noSavedMarkers_biometric_writesAesMarkersToPrefs() {
+        factory("AES_GCM_NoPadding", "AES_GCM_NoPadding");
+
+        assertEquals("AES_GCM_NoPadding", namespacedPrefs.getString(PREF_KEY_ALGORITHM, null));
+        assertEquals("AES_GCM_NoPadding", namespacedPrefs.getString(PREF_STORAGE_ALGORITHM, null));
     }
 
     @Test
@@ -124,13 +138,12 @@ public class StorageCipherFactoryTest {
     // -------------------------------------------------------------------------
 
     @Test
-    public void getSavedKeyAlgorithm_noMarkers_isDefaultNotCurrent() {
+    public void getSavedKeyAlgorithm_noMarkers_matchesCurrent() {
         StorageCipherFactory f = factory("AES_GCM_NoPadding", "AES_GCM_NoPadding");
 
-        // The constructor just wrote "AES_GCM_NoPadding" as the marker (no markers existed),
-        // but the true saved algorithm must still read as the assumed default (OAEP).
-        assertEquals(KeyCipherAlgorithm.RSA_ECB_OAEPwithSHA_256andMGF1Padding, f.getSavedKeyAlgorithm());
+        assertEquals(KeyCipherAlgorithm.AES_GCM_NoPadding, f.getSavedKeyAlgorithm());
         assertEquals(KeyCipherAlgorithm.AES_GCM_NoPadding, f.getCurrentKeyAlgorithm());
+        assertFalse(f.requiresReEncryption());
     }
 
     @Test

@@ -1009,7 +1009,16 @@ public class FlutterSecureStorage {
             // Step 3: Update algorithm markers to current
             Log.d(TAG, "Step 3/6: Updating algorithm markers to current...");
             updateAlgorithmMarkers(configSource);
-            
+
+            // Empty store: nothing to re-encrypt — skip biometric prompt. The next
+            // read/write will authenticate once via the normal per-operation path.
+            if (decryptedCache.isEmpty()) {
+                storageCipher = null;
+                Log.i(TAG, "Non-biometric→Biometric migration: empty store, markers updated without prompt.");
+                callback.onSuccess(null);
+                return;
+            }
+
             // Step 4: Get NEW biometric cipher (requires authentication)
             // Will create fresh biometric AES key in KeyStore
             Log.d(TAG, "Step 4/6: Getting current biometric cipher...");
@@ -1956,6 +1965,26 @@ public class FlutterSecureStorage {
                 Log.d(TAG, "Step 1/7: Decrypting all data from _BACKUP with saved non-biometric cipher...");
                 StorageCipher savedCipher = storageCipherFactory.getSavedStorageCipher(context, null);
                 Map<String, String> decryptedCache = decryptAllWithSavedCipherFromBackup(dataSource, null, savedCipher);
+
+                if (decryptedCache.isEmpty()) {
+                    Log.d(TAG, "Empty store during non-biometric→biometric backup migration; updating markers without prompt...");
+                    MigrationBackup.deleteBackup(dataSource, keyStorage, configSource, config,
+                            config.getSharedPreferencesKeyPrefix());
+                    updateAlgorithmMarkers(configSource);
+                    if (storageCipherFactory.changedKeyAlgorithm() && canSafelyDeleteOldKey()) {
+                        try {
+                            KeyCipher oldKeyCipher = storageCipherFactory.getSavedKeyCipher(context);
+                            oldKeyCipher.deleteKey();
+                            savedCipher.deleteKey(context);
+                        } catch (Exception deleteError) {
+                            Log.w(TAG, "Failed to delete old key from KeyStore (may not exist)", deleteError);
+                        }
+                    }
+                    storageCipher = null;
+                    Log.i(TAG, "Non-biometric→Biometric migration WITH BACKUP: empty store, markers updated without prompt.");
+                    callback.onSuccess(null);
+                    return;
+                }
 
                 // Step 2: Get NEW biometric cipher (requires authentication)
                 Log.d(TAG, "Step 2/7: Getting current biometric cipher...");

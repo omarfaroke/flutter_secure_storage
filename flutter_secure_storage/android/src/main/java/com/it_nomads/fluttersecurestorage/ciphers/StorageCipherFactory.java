@@ -27,17 +27,6 @@ public class StorageCipherFactory {
         final String savedKeyCipherAlgorithm = configSource.getString(ELEMENT_PREFERENCES_ALGORITHM_KEY, null);
         final String savedStorageCipherAlgorithm = configSource.getString(ELEMENT_PREFERENCES_ALGORITHM_STORAGE, null);
 
-        if (savedKeyCipherAlgorithm == null || savedStorageCipherAlgorithm == null) {
-            // No algorithm markers exist, treat as a fresh install using current defaults.
-            // v11 requires users to have migrated through v10 first; data from v9 or earlier
-            // without markers is treated as if it uses the current defaults.
-            savedKeyAlgorithm = DEFAULT_KEY_ALGORITHM;
-            savedStorageAlgorithm = DEFAULT_STORAGE_ALGORITHM;
-        } else {
-            savedKeyAlgorithm = KeyCipherAlgorithm.fromString(savedKeyCipherAlgorithm);
-            savedStorageAlgorithm = StorageCipherAlgorithm.fromString(savedStorageCipherAlgorithm);
-        }
-
         final StorageCipherAlgorithm currentStorageAlgorithmTmp = StorageCipherAlgorithm.fromString(storageCipherAlgorithm);
         currentStorageAlgorithm = (currentStorageAlgorithmTmp.minVersionCode <= Build.VERSION.SDK_INT) ? currentStorageAlgorithmTmp : DEFAULT_STORAGE_ALGORITHM;
 
@@ -46,6 +35,13 @@ public class StorageCipherFactory {
         currentKeyAlgorithm = (currentKeyAlgorithmTmp.minVersionCode <= Build.VERSION.SDK_INT) ? currentKeyAlgorithmTmp : DEFAULT_KEY_ALGORITHM;
 
         if (savedKeyCipherAlgorithm == null || savedStorageCipherAlgorithm == null) {
+            // No markers: treat as a fresh install already on the *current* algorithms.
+            // Assuming RSA here incorrectly triggers RSA→AES biometric migration (and an
+            // extra BiometricPrompt) on the first write to an empty biometric namespace.
+            // v11 expects unmarked stores / post-v10 data to match the configured algorithms.
+            savedKeyAlgorithm = currentKeyAlgorithm;
+            savedStorageAlgorithm = currentStorageAlgorithm;
+
             // Don't write algorithm markers during migrateWithBackup
             // (the migration flow writes them at step 7 after success).
             if (!config.shouldMigrateWithBackup()) {
@@ -53,6 +49,9 @@ public class StorageCipherFactory {
                 storeCurrentAlgorithms(source);
                 source.apply();
             }
+        } else {
+            savedKeyAlgorithm = KeyCipherAlgorithm.fromString(savedKeyCipherAlgorithm);
+            savedStorageAlgorithm = StorageCipherAlgorithm.fromString(savedStorageCipherAlgorithm);
         }
     }
 
