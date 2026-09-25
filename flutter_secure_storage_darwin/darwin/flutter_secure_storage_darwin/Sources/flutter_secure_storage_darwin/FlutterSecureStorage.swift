@@ -66,6 +66,10 @@ struct KeychainQueryParameters {
     /// Optional `kSecUseAuthenticationContext` for prompt copy and reuse duration.
     var authenticationContext: LAContext?
 
+    /// When true, Keychain must not present a second Face ID / Touch ID sheet
+    /// because [authenticationContext] was already evaluated via `LAContext.evaluatePolicy`.
+    var skipAuthenticationUI: Bool = false
+
     /// `accessControlFlags` (iOS/macOS): Specifies access control settings (e.g., biometrics, passcode).
     var accessControlFlags: String?
 
@@ -284,7 +288,10 @@ class FlutterSecureStorage {
             query[kSecReturnPersistentRef] = shouldReturnPersistentReference
         }
 
-        if let authenticationUIBehavior = params.authenticationUIBehavior {
+        if params.skipAuthenticationUI {
+            // Policy was already evaluated on authenticationContext — avoid a second system prompt.
+            query[kSecUseAuthenticationUI] = kSecUseAuthenticationUISkip
+        } else if let authenticationUIBehavior = params.authenticationUIBehavior {
             query[kSecUseAuthenticationUI] = authenticationUIBehavior
         }
 

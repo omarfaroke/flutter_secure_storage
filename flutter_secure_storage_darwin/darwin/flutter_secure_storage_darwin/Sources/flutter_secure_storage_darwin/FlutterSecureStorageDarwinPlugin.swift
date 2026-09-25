@@ -110,8 +110,10 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
             return
         }
 
-        let response = flutterSecureStorageManager.read(params: params)
-        handleResponse(response, result)
+        authenticateIfNeeded(params, result: result) { authorized in
+            let response = self.flutterSecureStorageManager.read(params: authorized)
+            self.handleResponse(response, result)
+        }
     }
 
     private func write(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
@@ -121,8 +123,10 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
             return
         }
 
-        let response = flutterSecureStorageManager.write(params: params, value: value)
-        handleResponse(response, result)
+        authenticateIfNeeded(params, result: result) { authorized in
+            let response = self.flutterSecureStorageManager.write(params: authorized, value: value)
+            self.handleResponse(response, result)
+        }
     }
 
     private func delete(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
@@ -132,6 +136,7 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
             return
         }
 
+        // Deletion does not require unlocking item data; skip Face ID / Touch ID.
         let response = flutterSecureStorageManager.delete(params: params)
         handleResponse(response, result)
     }
@@ -144,8 +149,10 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
 
     private func readAll(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
         let (params, _) = parseCall(call)
-        let response = flutterSecureStorageManager.readAll(params: params)
-        handleResponse(response, result)
+        authenticateIfNeeded(params, result: result) { authorized in
+            let response = self.flutterSecureStorageManager.readAll(params: authorized)
+            self.handleResponse(response, result)
+        }
     }
 
     private func containsKey(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
@@ -155,7 +162,11 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
             return
         }
 
-        let response = flutterSecureStorageManager.containsKey(params: params)
+        // Existence checks must not force a biometric sheet (callers use this to
+        // decide whether to prompt). Keychain ops inside read/write authenticate.
+        var probe = params
+        probe.authenticationContext = nil
+        let response = flutterSecureStorageManager.containsKey(params: probe)
 
         switch response {
         case .success(let exists):
@@ -167,6 +178,91 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
             }
             let errorMessage = SecCopyErrorMessageString(error.status, nil) ?? "Unknown security result code: \(error.status)" as CFString
             result(FlutterError(code: "Unexpected security result code", message: errorMessage as String, details: error.status))
+        }
+    }
+
+    /// Keychain ACL alone often skips Face ID on `SecItemAdd` (first write).
+    /// Explicitly evaluate `LAContext` so read/write match `local_auth` UX.
+    private func authenticateIfNeeded(
+        _ parameters: KeychainQueryParameters,
+        result: @escaping FlutterResult,
+        then proceed: @escaping (KeychainQueryParameters) -> Void
+    ) {
+        guard let context = parameters.authenticationContext,
+              needsAuthenticationContext(parameters) else {
+            proceed(parameters)
+            return
+        }
+
+        if #available(iOS 9.0, macOS 10.12, *) {
+            let policy = authPolicy(for: parameters)
+            let reason = context.localizedReason.isEmpty
+                ? "Authenticate to access"
+                : context.localizedReason
+
+            let semaphore = DispatchSemaphore(value: 0)
+            var success = false
+            var authError: NSError?
+
+            // UI must be presented from the main queue; we wait on the serial worker.
+            DispatchQueue.main.async {
+                context.evaluatePolicy(policy, localizedReason: reason) { ok, error in
+                    success = ok
+                    authError = error as NSError?
+                    semaphore.signal()
+                }
+            }
+            semaphore.wait()
+
+            if !success {
+                if let authError, isLocalAuthenticationCanceled(authError) {
+                    result(FlutterError(
+                        code: "BIOMETRIC_CANCELED",
+                        message: "BIOMETRIC_CANCELED: User canceled authentication",
+                        details: authError.code
+                    ))
+                    return
+                }
+                let message = authError?.localizedDescription ?? "Biometric authentication failed"
+                result(FlutterError(
+                    code: "Unexpected security result code",
+                    message: message,
+                    details: authError?.code ?? errSecAuthFailed
+                ))
+                return
+            }
+
+            var authorized = parameters
+            authorized.authenticationContext = context
+            // Keychain must reuse this evaluation instead of showing a second sheet.
+            authorized.skipAuthenticationUI = true
+            if context.touchIDAuthenticationAllowableReuseDuration <= 0 {
+                context.touchIDAuthenticationAllowableReuseDuration = 10
+            }
+            proceed(authorized)
+        } else {
+            proceed(parameters)
+        }
+    }
+
+    private func authPolicy(for parameters: KeychainQueryParameters) -> LAPolicy {
+        let flags = parameters.accessControlFlags ?? ""
+        if flags.contains("biometry") {
+            return .deviceOwnerAuthenticationWithBiometrics
+        }
+        // userPresence / Secure Enclave default: biometrics or device passcode.
+        return .deviceOwnerAuthentication
+    }
+
+    private func isLocalAuthenticationCanceled(_ error: NSError) -> Bool {
+        guard error.domain == LAErrorDomain else { return false }
+        switch error.code {
+        case LAError.userCancel.rawValue,
+             LAError.appCancel.rawValue,
+             LAError.systemCancel.rawValue:
+            return true
+        default:
+            return false
         }
     }
 
