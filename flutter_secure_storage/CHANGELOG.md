@@ -16,6 +16,7 @@
 * **android:** report a dismissed biometric prompt as `BIOMETRIC_CANCELED` instead of `Exception encountered`
 * **android:** keep the wrapping key when fingerprints are added or removed (`setInvalidatedByBiometricEnrollment(false)`); still prompt on every read/write
 * **darwin:** report Keychain user-cancel (`errSecUserCanceled`) as `BIOMETRIC_CANCELED`
+* **darwin:** preserve user-cancel through Secure Enclave unwrap/write (`LAError` cancel → `errSecUserCanceled`, not `errSecAuthFailed`)
 
 ## [11.2.0](https://github.com/juliansteenbakker/flutter_secure_storage/compare/flutter_secure_storage-v11.1.1...flutter_secure_storage-v11.2.0) (2026-09-16)
 

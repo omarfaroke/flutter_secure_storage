@@ -85,6 +85,36 @@ struct OSSecError: Error {
     var message: String?
 }
 
+extension OSSecError {
+    /// Maps `CFError` from Security / LocalAuthentication into an `OSStatus`.
+    /// User/system/app cancel become `errSecUserCanceled` so the plugin can
+    /// report `BIOMETRIC_CANCELED` instead of a generic auth failure.
+    static func status(from cfError: CFError?, fallback: OSStatus) -> OSStatus {
+        guard let cfError else { return fallback }
+        let nsError = cfError as Error as NSError
+        if Self.isLocalAuthenticationCancel(nsError) {
+            return errSecUserCanceled
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
+           Self.isLocalAuthenticationCancel(underlying) {
+            return errSecUserCanceled
+        }
+        return fallback
+    }
+
+    private static func isLocalAuthenticationCancel(_ error: NSError) -> Bool {
+        guard error.domain == LAErrorDomain else { return false }
+        switch error.code {
+        case LAError.userCancel.rawValue,
+             LAError.appCancel.rawValue,
+             LAError.systemCancel.rawValue:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 class FlutterSecureStorage {
     /// Parses the accessibility attribute into a CFString value.
     private func parseAccessibleAttr(_ accessibilityLevel: String?) -> CFString {
@@ -363,7 +393,11 @@ class FlutterSecureStorage {
         }
         var error: Unmanaged<CFError>?
         guard let encrypted = SecKeyCreateEncryptedData(publicKey, algorithm, keyData as CFData, &error) as Data? else {
-            throw OSSecError(status: errSecParam, message: error?.takeRetainedValue().localizedDescription)
+            let cfError = error?.takeRetainedValue()
+            throw OSSecError(
+                status: OSSecError.status(from: cfError, fallback: errSecParam),
+                message: cfError.map { ($0 as Error).localizedDescription }
+            )
         }
         return encrypted
     }
@@ -377,7 +411,11 @@ class FlutterSecureStorage {
         }
         var error: Unmanaged<CFError>?
         guard let decrypted = SecKeyCreateDecryptedData(privateKey, algorithm, wrappedData as CFData, &error) as Data? else {
-            throw OSSecError(status: errSecAuthFailed, message: error?.takeRetainedValue().localizedDescription)
+            let cfError = error?.takeRetainedValue()
+            throw OSSecError(
+                status: OSSecError.status(from: cfError, fallback: errSecAuthFailed),
+                message: cfError.map { ($0 as Error).localizedDescription }
+            )
         }
         return decrypted
     }
@@ -654,6 +692,8 @@ class FlutterSecureStorage {
                 defer { wipe(&plaintext) }
                 let value = String(data: plaintext, encoding: .utf8)
                 return FlutterSecureStorageResponse(status: errSecSuccess, value: value)
+            } catch let error as OSSecError {
+                return FlutterSecureStorageResponse(status: error.status, value: nil)
             } catch {
                 // Wrapped key exists but could not be unwrapped.
                 return FlutterSecureStorageResponse(status: errSecAuthFailed, value: nil)
@@ -755,6 +795,8 @@ class FlutterSecureStorage {
                     dataStatus = SecItemAdd(dataQuery as CFDictionary, nil)
                 }
                 return FlutterSecureStorageResponse(status: dataStatus, value: nil)
+            } catch let error as OSSecError {
+                return FlutterSecureStorageResponse(status: error.status, value: nil)
             } catch {
                 return FlutterSecureStorageResponse(status: errSecParam, value: nil)
             }

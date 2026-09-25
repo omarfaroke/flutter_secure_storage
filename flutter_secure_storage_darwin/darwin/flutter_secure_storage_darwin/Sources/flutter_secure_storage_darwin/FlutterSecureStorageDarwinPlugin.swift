@@ -161,7 +161,7 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
         case .success(let exists):
             result(exists)
         case .failure(let error):
-            if error.status == errSecUserCanceled {
+            if isBiometricCanceled(error.status) {
                 result(FlutterError(code: "BIOMETRIC_CANCELED", message: "BIOMETRIC_CANCELED: User canceled authentication", details: error.status))
                 return
             }
@@ -247,7 +247,7 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
     private func handleResponse(_ response: FlutterSecureStorageResponse, _ result: @escaping FlutterResult) {
         let status = response.status
         if status != noErr {
-            if status == errSecUserCanceled {
+            if isBiometricCanceled(status) {
                 result(FlutterError(code: "BIOMETRIC_CANCELED", message: "BIOMETRIC_CANCELED: User canceled authentication", details: status))
                 return
             }
@@ -265,5 +265,10 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
         } else {
             result(response.value)
         }
+    }
+
+    private func isBiometricCanceled(_ status: OSStatus) -> Bool {
+        // Framework Keychain cancel. Named constant is the primary path.
+        status == errSecUserCanceled
     }
 }

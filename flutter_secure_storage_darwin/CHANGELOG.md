@@ -12,6 +12,7 @@
 ### Bug Fixes
 
 * Report Keychain user-cancel (`errSecUserCanceled`) as `BIOMETRIC_CANCELED`
+* Preserve user-cancel through Secure Enclave unwrap/write failures (map `LAError` cancel to `errSecUserCanceled` instead of `errSecAuthFailed` / `errSecParam`)
 
 ## [0.4.3](https://github.com/juliansteenbakker/flutter_secure_storage/compare/flutter_secure_storage_darwin-v0.4.2...flutter_secure_storage_darwin-v0.4.3) (2026-09-16)
 
