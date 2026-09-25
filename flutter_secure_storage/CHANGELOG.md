@@ -12,6 +12,7 @@
 
 ### Bug Fixes
 
+* **android:** complete the pending Future when the biometric negative button is tapped (`strongBiometricOnly`); framework `BiometricPrompt` only invokes the button listener, not `onAuthenticationError`
 * **android:** report a dismissed biometric prompt as `BIOMETRIC_CANCELED` instead of `Exception encountered`
 * **android:** keep the wrapping key when fingerprints are added or removed (`setInvalidatedByBiometricEnrollment(false)`); still prompt on every read/write
 * **darwin:** report Keychain user-cancel (`errSecUserCanceled`) as `BIOMETRIC_CANCELED`
