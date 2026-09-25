@@ -144,4 +144,54 @@ public class StorageCipherTest {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // StorageCipherImplementationKeystoreGcm
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void keystoreGcm_encryptDecrypt_roundTrip() throws Exception {
+        SecretKeySpec key = new SecretKeySpec(new byte[32], "AES");
+        StorageCipherImplementationKeystoreGcm cipher = new StorageCipherImplementationKeystoreGcm(key);
+        byte[] plaintext = "hello keystore direct".getBytes(StandardCharsets.UTF_8);
+
+        byte[] encrypted = cipher.encrypt(plaintext);
+        byte[] decrypted = cipher.decrypt(encrypted);
+
+        assertArrayEquals(plaintext, decrypted);
+    }
+
+    @Test
+    public void keystoreGcm_wireFormat_isIvThenCiphertext() throws Exception {
+        SecretKeySpec key = new SecretKeySpec(new byte[32], "AES");
+        StorageCipherImplementationKeystoreGcm cipher = new StorageCipherImplementationKeystoreGcm(key);
+        byte[] encrypted = cipher.encrypt("format".getBytes(StandardCharsets.UTF_8));
+
+        assertNotNull(encrypted);
+        // 12-byte IV + ciphertext + 16-byte GCM tag
+        org.junit.Assert.assertTrue(encrypted.length > 12 + 16);
+    }
+
+    @Test
+    public void keystoreGcm_softwareKey_getEncodedIsNonNull_forTestDouble() {
+        // Real Android Keystore keys return null from getEncoded(); unit tests use
+        // SecretKeySpec stand-ins. Production path never materialises a software app key.
+        SecretKeySpec key = new SecretKeySpec(new byte[32], "AES");
+        assertNotNull(key.getEncoded());
+        StorageCipherImplementationKeystoreGcm cipher = new StorageCipherImplementationKeystoreGcm(key);
+        assertNotNull(cipher);
+    }
+
+    @Test
+    public void keystoreGcm_destroy_rejectsFurtherUse() throws Exception {
+        StorageCipherImplementationKeystoreGcm cipher =
+                new StorageCipherImplementationKeystoreGcm(new SecretKeySpec(new byte[32], "AES"));
+        cipher.destroy();
+        try {
+            cipher.encrypt("nope".getBytes(StandardCharsets.UTF_8));
+            org.junit.Assert.fail("Expected IllegalStateException after destroy");
+        } catch (IllegalStateException expected) {
+            org.junit.Assert.assertTrue(expected.getMessage().contains("destroyed"));
+        }
+    }
+
 }

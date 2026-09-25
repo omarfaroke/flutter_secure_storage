@@ -4,8 +4,9 @@
 
 ### Features
 
+* **android:** encrypt biometric SharedPreferences values directly with a non-extractable Keystore AES key (no software app key in the Java heap); one-time migration from legacy wrapped `APP_KEY` stores
 * **android:** `AndroidOptions.biometric()` prompts on every `read` / `write` / `readAll` by default (`requireBiometricsPerOperation`)
-* **android:** use CryptoObject-bound every-use Keystore keys for biometric auth (cryptographically bound to the Cipher)
+* **android:** use CryptoObject-bound Keystore unlock for biometric auth (short auth-validity window for multi-value ops such as `readAll`)
 * **android:** invalidate biometric wrapping keys on fingerprint enrollment change (`setInvalidatedByBiometricEnrollment(true)`)
 * **android:** show BiometricPrompt from the Activity on the main thread
 * **darwin:** apply `description` and `localizedCancelTitle` on the system prompt; default reuse duration is 0

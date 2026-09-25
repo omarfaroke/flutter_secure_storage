@@ -82,9 +82,15 @@ public class StorageCipherFactory {
                                                Cipher cipher, StorageCipherAlgorithm algorithm) throws Exception {
         // For AES_GCM_NoPadding, choose implementation based on KeyCipher type
         if (algorithm == StorageCipherAlgorithm.AES_GCM_NoPadding) {
-            if (isKeyStoreKeyCipher(keyCipher)) {
-                // Use KeyStore-based implementation (biometric/PIN auth capable)
-                return new StorageCipherImplementationAES23(context, keyCipher, cipher, config);
+            if (keyCipher.usesKeystoreAesKey()) {
+                SharedPreferences keyPrefs = context.getSharedPreferences(
+                        config.getEffectiveKeyStoragePrefsName(), Context.MODE_PRIVATE);
+                if (StorageCipherImplementationAES23.hasApplicationKey(keyPrefs)) {
+                    // Legacy: software app key wrapped by Keystore AES.
+                    return new StorageCipherImplementationAES23(context, keyCipher, cipher, config);
+                }
+                // Keystore-direct: values encrypted by the non-extractable Keystore key.
+                return new StorageCipherImplementationKeystoreGcm(keyCipher.getKeystoreAesKey());
             } else {
                 // Use RSA-wrapped implementation (standard secure storage)
                 return new StorageCipherImplementationGCM(context, keyCipher, cipher, config);
@@ -96,13 +102,6 @@ public class StorageCipherFactory {
             throw new Exception("No implementation available for algorithm: " + algorithm.name());
         }
         return algorithm.storageCipher.apply(context, keyCipher, cipher, config);
-    }
-
-    /**
-     * Checks if the KeyCipher uses KeyStore (AES) vs RSA wrapping.
-     */
-    private boolean isKeyStoreKeyCipher(KeyCipher keyCipher) {
-        return keyCipher instanceof KeyCipherImplementationAES23;
     }
 
     public KeyCipher getCurrentKeyCipher(Context context) throws Exception {

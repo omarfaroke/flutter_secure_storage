@@ -145,8 +145,8 @@ Version 10 introduces new cipher options and biometric support. Choose the confi
 | Constructor                                                                                              | Key Cipher                            | Storage Cipher    | Biometric Support | Description                                                                                                                                          |
 |----------------------------------------------------------------------------------------------------------|---------------------------------------|-------------------|-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `AndroidOptions()`                                                                                       | RSA/ECB/OAEPWithSHA-256AndMGF1Padding | AES/GCM/NoPadding | No                | **Default.** Standard secure storage with RSA OAEP key wrapping. Strong authenticated encryption without biometrics. Recommended for most use cases. |
-| `AndroidOptions.biometric(enforceBiometrics: false)`                                                     | AES/GCM/NoPadding                     | AES/GCM/NoPadding | Optional          | KeyStore-based with optional biometric authentication. Gracefully degrades if biometrics unavailable.                                                |
-| `AndroidOptions.biometric(enforceBiometrics: true)`                                                      | AES/GCM/NoPadding                     | AES/GCM/NoPadding | Required          | KeyStore-based requiring biometric/PIN authentication. Throws error if device security not available. Requires API 28+ for biometric enforcement.    |
+| `AndroidOptions.biometric(enforceBiometrics: false)`                                                     | AES/GCM/NoPadding                     | AES/GCM/NoPadding | Optional          | Keystore-direct AES-GCM with optional biometric authentication. Gracefully degrades if biometrics unavailable.                                                |
+| `AndroidOptions.biometric(enforceBiometrics: true)`                                                      | AES/GCM/NoPadding                     | AES/GCM/NoPadding | Required          | Keystore-direct AES-GCM requiring biometric/PIN authentication. Throws error if device security not available. Requires API 28+ for biometric enforcement.    |
 | `AndroidOptions.biometric(enforceBiometrics: true, biometricType: AndroidBiometricType.strongBiometricOnly)` | AES/GCM/NoPadding                 | AES/GCM/NoPadding | Required (strong) | Same as above but restricts authentication to Class 3 (strong) biometrics only. Device credentials (PIN/pattern/password) are rejected.              |
 
 #### Custom Cipher Combinations (Advanced)
@@ -164,14 +164,14 @@ For advanced users, all combinations below are supported using the `AndroidOptio
 
 **Notes:**
 - **RSA key ciphers** wrap the AES encryption key with RSA. No biometric support.
-- **AES key cipher** stores the key directly in Android KeyStore. Supports optional biometric authentication.
+- **AES key cipher (biometric):** values are encrypted directly with a non-extractable Android Keystore AES key (no software app key is materialised in the Java heap). Existing installs that still have a wrapped app key are migrated automatically on the next successful biometric unlock.
 - **`enforceBiometrics` parameter** (default: `false`):
     - `false`: Gracefully degrades if biometrics unavailable
     - `true`: Strictly requires device security (PIN/pattern/biometric), throws exception if unavailable
 - **`requireBiometricsPerOperation` parameter** (default: `true` for `AndroidOptions.biometric()`):
-    - `true`: Prompt on every `read` / `write` / `readAll` with a CryptoObject-bound BiometricPrompt
-    - `false`: Unlock once for the process lifetime (app AES key cached in memory after first auth)
-- Biometric wrapping keys are invalidated when the user adds or removes a fingerprint (aligned with iOS `biometryCurrentSet`). Existing secrets cannot be read until the store is re-created.
+    - `true`: Prompt on every `read` / `write` / `readAll` with a CryptoObject-bound BiometricPrompt (Keystore auth-validity window allows multi-value ops such as `readAll` after one prompt)
+    - `false`: Unlock once for the process lifetime after first auth
+- Biometric Keystore keys are invalidated when the user adds or removes a fingerprint (aligned with iOS `biometryCurrentSet`). Existing secrets cannot be read until the store is re-created.
 
 #### Migration with Backup Protection
 

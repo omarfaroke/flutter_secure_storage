@@ -13,7 +13,6 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 
@@ -258,13 +257,22 @@ public class StorageCipherFactoryTest {
         @Override public void deleteKey() {}
     }
 
-    private static KeyCipher keyStoreKeyCipherStub() throws Exception {
-        Field field = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe");
-        field.setAccessible(true);
-        Object unsafe = field.get(null);
-        return (KeyCipher) unsafe.getClass()
-                .getMethod("allocateInstance", Class.class)
-                .invoke(unsafe, KeyCipherImplementationAES23.class);
+    private static class FakeKeystoreAesKeyCipher extends FakeKeyCipher {
+        private final SecretKeySpec secretKey;
+
+        FakeKeystoreAesKeyCipher(byte[] keyBytes) {
+            this.secretKey = new SecretKeySpec(keyBytes, "AES");
+        }
+
+        @Override
+        public boolean usesKeystoreAesKey() {
+            return true;
+        }
+
+        @Override
+        public javax.crypto.SecretKey getKeystoreAesKey() {
+            return secretKey;
+        }
     }
 
     private static Cipher initializedAesGcmCipher() throws Exception {
@@ -284,28 +292,61 @@ public class StorageCipherFactoryTest {
     }
 
     @Test
-    public void createStorageCipher_gcmAlgorithm_withKeyStoreKeyCipher_returnsAes23Implementation()
+    public void createStorageCipher_gcmAlgorithm_withKeyStoreKeyCipher_noAppKey_returnsKeystoreGcm()
             throws Exception {
         Context context = RuntimeEnvironment.getApplication();
         StorageCipher result = factory("AES_GCM_NoPadding", "AES_GCM_NoPadding")
                 .createStorageCipher(
                         context,
-                        keyStoreKeyCipherStub(),
-                        initializedAesGcmCipher(),
+                        new FakeKeystoreAesKeyCipher(new byte[32]),
+                        null,
+                        StorageCipherAlgorithm.AES_GCM_NoPadding);
+        assertNotNull(result);
+        assertTrue(result instanceof StorageCipherImplementationKeystoreGcm);
+    }
+
+    @Test
+    public void createStorageCipher_gcmAlgorithm_withKeyStoreKeyCipher_andAppKey_returnsAes23()
+            throws Exception {
+        Context context = RuntimeEnvironment.getApplication();
+        SharedPreferences keyPrefs = context.getSharedPreferences("FlutterSecureKeyStorage", Context.MODE_PRIVATE);
+        Cipher wrapCipher = initializedAesGcmCipher();
+        byte[] appKey = new byte[32];
+        for (int i = 0; i < appKey.length; i++) {
+            appKey[i] = (byte) i;
+        }
+        byte[] wrapped = wrapCipher.doFinal(appKey);
+        keyPrefs.edit()
+                .putString(StorageCipherImplementationAES23.APP_KEY_PREF,
+                        android.util.Base64.encodeToString(wrapped, android.util.Base64.DEFAULT))
+                .commit();
+
+        // Decrypt path needs the same key+IV as encrypt — rebuild DECRYPT cipher from wrapCipher IV
+        Cipher decryptCipher = Cipher.getInstance("AES/GCM/NoPadding");
+        decryptCipher.init(
+                Cipher.DECRYPT_MODE,
+                new SecretKeySpec(new byte[32], "AES"),
+                new javax.crypto.spec.GCMParameterSpec(128, wrapCipher.getIV()));
+
+        StorageCipher result = factory("AES_GCM_NoPadding", "AES_GCM_NoPadding")
+                .createStorageCipher(
+                        context,
+                        new FakeKeystoreAesKeyCipher(new byte[32]),
+                        decryptCipher,
                         StorageCipherAlgorithm.AES_GCM_NoPadding);
         assertNotNull(result);
         assertTrue(result instanceof StorageCipherImplementationAES23);
     }
 
     @Test
-    public void createStorageCipher_keyStoreBackedCipher_encryptsDecryptsAndDeletesKey()
+    public void createStorageCipher_keystoreDirect_encryptsDecrypts()
             throws Exception {
         Context context = RuntimeEnvironment.getApplication();
         StorageCipher result = factory("AES_GCM_NoPadding", "AES_GCM_NoPadding")
                 .createStorageCipher(
                         context,
-                        keyStoreKeyCipherStub(),
-                        initializedAesGcmCipher(),
+                        new FakeKeystoreAesKeyCipher(new byte[32]),
+                        null,
                         StorageCipherAlgorithm.AES_GCM_NoPadding);
         byte[] plaintext = "biometric storage payload".getBytes(StandardCharsets.UTF_8);
 
