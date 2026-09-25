@@ -5,7 +5,9 @@
 ### Features
 
 * **android:** `AndroidOptions.biometric()` prompts on every `read` / `write` / `readAll` by default (`requireBiometricsPerOperation`)
-* **android:** show an unbound BiometricPrompt on every per-operation read/write (CryptoObject auth was skipping the UI after the first success)
+* **android:** use CryptoObject-bound every-use Keystore keys for biometric auth (cryptographically bound to the Cipher)
+* **android:** invalidate biometric wrapping keys on fingerprint enrollment change (`setInvalidatedByBiometricEnrollment(true)`)
+* **android:** show BiometricPrompt from the Activity on the main thread
 * **darwin:** apply `description` and `localizedCancelTitle` on the system prompt; default reuse duration is 0
 * **android,darwin:** wipe key material and plaintext after a successful read or write
 * **darwin:** fail closed when a Secure Enclave wrapped key cannot be unwrapped
@@ -14,7 +16,6 @@
 
 * **android:** complete the pending Future when the biometric negative button is tapped (`strongBiometricOnly`); framework `BiometricPrompt` only invokes the button listener, not `onAuthenticationError`. Also cancel the `CancellationSignal` after completing so the next prompt can show.
 * **android:** report a dismissed biometric prompt as `BIOMETRIC_CANCELED` instead of `Exception encountered`
-* **android:** keep the wrapping key when fingerprints are added or removed (`setInvalidatedByBiometricEnrollment(false)`); still prompt on every read/write
 * **darwin:** report Keychain user-cancel (`errSecUserCanceled`) as `BIOMETRIC_CANCELED`
 * **darwin:** preserve user-cancel through Secure Enclave unwrap/write (`LAError` cancel → `errSecUserCanceled`, not `errSecAuthFailed`)
 

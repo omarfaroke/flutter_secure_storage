@@ -37,8 +37,9 @@ class KeyCipherImplementationAES23 implements KeyCipher {
     private static final String SHARED_PREFERENCES_KEY = "KeyStoreIV1";
     private static final int IV_SIZE = 16;
     private static final int KEY_SIZE = 256;
-    // Long enough to finish unwrap after the prompt; not a process-lifetime cache.
-    private static final int PER_OPERATION_AUTH_VALIDITY_SECONDS = 10;
+    // Authentication required for every use of the key (CryptoObject-bound).
+    private static final int AUTH_VALIDITY_EVERY_USE = 0;
+    private static final int AUTH_VALIDITY_EVERY_USE_LEGACY = -1;
     protected final String keyAlias;
 
     protected final Context context;
@@ -286,9 +287,10 @@ class KeyCipherImplementationAES23 implements KeyCipher {
     }
 
     /**
-     * CryptoObject-bound keys ({@code timeout == 0}) let the system skip the sheet after the first
-     * success in a process. Per-operation mode uses a short validity window instead so an
-     * unbound BiometricPrompt can be shown on every read/write.
+     * Per-operation mode uses {@code timeout == 0} so each CryptoObject use requires
+     * a fresh biometric authentication (cryptographically bound to the Cipher).
+     * When per-operation is off, the same every-use binding applies for biometric
+     * keys so the process cannot reuse an unlocked wrapping key indefinitely.
      */
     private void configureUserAuthentication(KeyGenParameterSpec.Builder builder) {
         builder.setUserAuthenticationRequired(true);
@@ -296,16 +298,12 @@ class KeyCipherImplementationAES23 implements KeyCipher {
             int authTypes = config.isStrongBiometricOnly()
                     ? AUTH_BIOMETRIC_STRONG
                     : AUTH_DEVICE_CREDENTIAL | AUTH_BIOMETRIC_STRONG;
-            int timeout = config.getRequireBiometricsPerOperation()
-                    ? PER_OPERATION_AUTH_VALIDITY_SECONDS
-                    : 0;
-            builder.setUserAuthenticationParameters(timeout, authTypes);
+            builder.setUserAuthenticationParameters(AUTH_VALIDITY_EVERY_USE, authTypes);
         } else {
             configureLegacyAuth(builder);
         }
-        // Adding/removing a fingerprint must not destroy the wrapping key.
-        // Per-operation BiometricPrompt still gates every read/write.
-        builder.setInvalidatedByBiometricEnrollment(false);
+        // Match iOS biometryCurrentSet: enrollment changes invalidate the wrapping key.
+        builder.setInvalidatedByBiometricEnrollment(true);
     }
 
     /**
@@ -313,10 +311,7 @@ class KeyCipherImplementationAES23 implements KeyCipher {
      */
     @SuppressWarnings({"deprecation", "RedundantSuppression"})
     private void configureLegacyAuth(KeyGenParameterSpec.Builder builder) {
-        int timeout = config.getRequireBiometricsPerOperation()
-                ? PER_OPERATION_AUTH_VALIDITY_SECONDS
-                : -1;
-        builder.setUserAuthenticationValidityDurationSeconds(timeout);
+        builder.setUserAuthenticationValidityDurationSeconds(AUTH_VALIDITY_EVERY_USE_LEGACY);
     }
 
 

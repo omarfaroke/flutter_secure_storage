@@ -1,5 +1,6 @@
 package com.it_nomads.fluttersecurestorage;
 
+import android.app.Activity;
 import android.content.Context;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -7,6 +8,7 @@ import android.os.Looper;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -14,17 +16,21 @@ import java.util.HashMap;
 import java.util.Map;
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
+import io.flutter.embedding.engine.plugins.activity.ActivityAware;
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 
-public class FlutterSecureStoragePlugin implements MethodCallHandler, FlutterPlugin {
+public class FlutterSecureStoragePlugin implements MethodCallHandler, FlutterPlugin, ActivityAware {
 
     private static final String TAG = "FlutterSecureStoragePlugin";
     private MethodChannel channel;
     private Context applicationContext;
+    @Nullable
+    private Activity activity;
     private final Map<String, FlutterSecureStorage> storagesBySharedPreferencesName = new HashMap<>();
     private HandlerThread workerThread;
     private Handler workerThreadHandler;
@@ -62,6 +68,39 @@ public class FlutterSecureStoragePlugin implements MethodCallHandler, FlutterPlu
             storagesBySharedPreferencesName.clear();
         }
         applicationContext = null;
+        activity = null;
+    }
+
+    @Override
+    public void onAttachedToActivity(@NonNull ActivityPluginBinding binding) {
+        activity = binding.getActivity();
+        propagateBiometricContext(activity);
+    }
+
+    @Override
+    public void onDetachedFromActivityForConfigChanges() {
+        activity = null;
+        propagateBiometricContext(null);
+    }
+
+    @Override
+    public void onReattachedToActivityForConfigChanges(@NonNull ActivityPluginBinding binding) {
+        activity = binding.getActivity();
+        propagateBiometricContext(activity);
+    }
+
+    @Override
+    public void onDetachedFromActivity() {
+        activity = null;
+        propagateBiometricContext(null);
+    }
+
+    private void propagateBiometricContext(@Nullable Context biometricContext) {
+        synchronized (storagesBySharedPreferencesName) {
+            for (FlutterSecureStorage storage : storagesBySharedPreferencesName.values()) {
+                storage.setBiometricContext(biometricContext);
+            }
+        }
     }
 
     @Override
@@ -96,9 +135,11 @@ public class FlutterSecureStoragePlugin implements MethodCallHandler, FlutterPlu
         synchronized (storagesBySharedPreferencesName) {
             FlutterSecureStorage existing = storagesBySharedPreferencesName.get(name);
             if (existing != null) {
+                existing.setBiometricContext(activity);
                 return existing;
             }
             FlutterSecureStorage created = new FlutterSecureStorage(applicationContext);
+            created.setBiometricContext(activity);
             storagesBySharedPreferencesName.put(name, created);
             return created;
         }

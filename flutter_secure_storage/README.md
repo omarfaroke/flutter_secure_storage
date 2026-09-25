@@ -169,9 +169,9 @@ For advanced users, all combinations below are supported using the `AndroidOptio
     - `false`: Gracefully degrades if biometrics unavailable
     - `true`: Strictly requires device security (PIN/pattern/biometric), throws exception if unavailable
 - **`requireBiometricsPerOperation` parameter** (default: `true` for `AndroidOptions.biometric()`):
-    - `true`: Prompt on every `read` / `write` / `readAll`
-    - `false`: Unlock once for the process lifetime
-- Biometric wrapping keys stay valid when the user adds or removes a fingerprint. Each `read` / `write` still shows a system prompt.
+    - `true`: Prompt on every `read` / `write` / `readAll` with a CryptoObject-bound BiometricPrompt
+    - `false`: Unlock once for the process lifetime (app AES key cached in memory after first auth)
+- Biometric wrapping keys are invalidated when the user adds or removes a fingerprint (aligned with iOS `biometryCurrentSet`). Existing secrets cannot be read until the store is re-created.
 
 #### Migration with Backup Protection
 

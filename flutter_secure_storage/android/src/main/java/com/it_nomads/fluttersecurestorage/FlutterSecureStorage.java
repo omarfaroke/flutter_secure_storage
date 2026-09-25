@@ -8,6 +8,8 @@ import android.hardware.biometrics.BiometricManager;
 import android.hardware.biometrics.BiometricPrompt;
 import android.os.Build;
 import android.os.CancellationSignal;
+import android.os.Handler;
+import android.os.Looper;
 import android.security.keystore.KeyPermanentlyInvalidatedException;
 import android.security.keystore.UserNotAuthenticatedException;
 import android.util.Base64;
@@ -29,7 +31,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.crypto.Cipher;
@@ -41,6 +42,8 @@ public class FlutterSecureStorage {
     private FlutterSecureStorageConfig config;
     @NonNull
     private final Context context;
+    @Nullable
+    private volatile Context biometricContext;
 
     private SharedPreferences preferences;
     private StorageCipher storageCipher;
@@ -48,6 +51,26 @@ public class FlutterSecureStorage {
 
     public FlutterSecureStorage(Context context) {
         this.context = context.getApplicationContext();
+    }
+
+    /**
+     * Prefer an Activity for BiometricPrompt. Falls back to the application context
+     * when no Activity is attached.
+     */
+    public void setBiometricContext(@Nullable Context biometricContext) {
+        this.biometricContext = biometricContext;
+    }
+
+    @NonNull
+    private Context promptContext() {
+        Context candidate = biometricContext;
+        if (candidate instanceof android.app.Activity) {
+            android.app.Activity activity = (android.app.Activity) candidate;
+            if (!activity.isFinishing() && !activity.isDestroyed()) {
+                return activity;
+            }
+        }
+        return context;
     }
 
     public String addPrefixToKey(String key) {
@@ -213,7 +236,7 @@ public class FlutterSecureStorage {
                     Cipher authorized = result != null && result.getCryptoObject() != null
                             ? result.getCryptoObject().getCipher()
                             : cipher;
-                    completeWithAuthorizedCipher(authorized, callback, isRetryAfterRecovery, false);
+                    completeWithAuthorizedCipher(authorized, callback, isRetryAfterRecovery);
                 }
 
                 @Override
@@ -227,9 +250,10 @@ public class FlutterSecureStorage {
     }
 
     /**
-     * Shows a BiometricPrompt that is not bound to a CryptoObject so the sheet cannot be skipped
-     * after the first success in this process. Crypto-bound wrapping keys are prompted once with
-     * a CryptoObject, then rewrapped to the per-operation scheme.
+     * Authenticates each read/write with a CryptoObject-bound BiometricPrompt so the
+     * biometric event unlocks the wrapping Cipher. Legacy keys that used a validity
+     * window keep an unbound prompt (no automatic rewrap; deleteAll / re-enroll for
+     * the stronger every-use binding).
      */
     private void authenticateForEachOperation(SecurePreferencesCallback<StorageCipher> callback,
                                               boolean isRetryAfterRecovery,
@@ -244,8 +268,6 @@ public class FlutterSecureStorage {
                 StorageCipherImplementationAES23.clearWrappedApplicationKey(context, config);
                 keyCipher.deleteKey();
             }
-            final boolean rewrapKey = keyCipher.isUserAuthenticationBoundToEveryUse()
-                    || keyCipher.isInvalidatedByBiometricEnrollment();
             if (keyCipher.isUserAuthenticationBoundToEveryUse()) {
                 Cipher pending = keyCipher.getCipher(context);
                 authenticateUser(pending, new SecurePreferencesCallback<>() {
@@ -254,7 +276,7 @@ public class FlutterSecureStorage {
                         Cipher authorized = result != null && result.getCryptoObject() != null
                                 ? result.getCryptoObject().getCipher()
                                 : pending;
-                        completeWithAuthorizedCipher(authorized, callback, isRetryAfterRecovery, true);
+                        completeWithAuthorizedCipher(authorized, callback, isRetryAfterRecovery);
                     }
 
                     @Override
@@ -270,7 +292,7 @@ public class FlutterSecureStorage {
                 public void onSuccess(BiometricPrompt.AuthenticationResult unused) {
                     try {
                         Cipher cipher = storageCipherFactory.getCurrentKeyCipher(context).getCipher(context);
-                        completeWithAuthorizedCipher(cipher, callback, isRetryAfterRecovery, rewrapKey);
+                        completeWithAuthorizedCipher(cipher, callback, isRetryAfterRecovery);
                     } catch (Exception e) {
                         callback.onError(isPostAuthKeyInvalidated(e) ? keyInvalidatedError(e) : e);
                     }
@@ -288,16 +310,10 @@ public class FlutterSecureStorage {
 
     private void completeWithAuthorizedCipher(Cipher authorized,
                                              SecurePreferencesCallback<StorageCipher> callback,
-                                             boolean isRetryAfterRecovery,
-                                             boolean migrateFromCryptoBound) {
+                                             boolean isRetryAfterRecovery) {
         StorageCipher freshCipher = null;
         try {
             freshCipher = storageCipherFactory.getCurrentStorageCipher(context, authorized);
-            if (migrateFromCryptoBound && migrateToPerOperationWrappingKey(freshCipher)) {
-                freshCipher.destroy();
-                Cipher cipher = storageCipherFactory.getCurrentKeyCipher(context).getCipher(context);
-                freshCipher = storageCipherFactory.getCurrentStorageCipher(context, cipher);
-            }
             callback.onSuccess(freshCipher);
         } catch (Exception e) {
             if (isRetryAfterRecovery || isPostAuthKeyInvalidated(e)) {
@@ -320,29 +336,6 @@ public class FlutterSecureStorage {
         } finally {
             if (freshCipher != null) {
                 freshCipher.destroy();
-            }
-        }
-    }
-
-    private boolean migrateToPerOperationWrappingKey(StorageCipher current) {
-        if (!(current instanceof StorageCipherImplementationAES23)) {
-            return false;
-        }
-        byte[] appKey = null;
-        try {
-            appKey = ((StorageCipherImplementationAES23) current).copyApplicationKey();
-            StorageCipherImplementationAES23.clearWrappedApplicationKey(context, config);
-            storageCipherFactory.getCurrentKeyCipher(context).deleteKey();
-            KeyCipher newKeyCipher = storageCipherFactory.getCurrentKeyCipher(context);
-            Cipher encryptCipher = newKeyCipher.getCipher(context);
-            StorageCipherImplementationAES23.storeWrappedApplicationKey(context, config, encryptCipher, appKey);
-            return true;
-        } catch (Exception e) {
-            Log.w(TAG, "Could not migrate wrapping key to per-operation authentication", e);
-            return false;
-        } finally {
-            if (appKey != null) {
-                java.util.Arrays.fill(appKey, (byte) 0);
             }
         }
     }
@@ -1396,6 +1389,20 @@ public class FlutterSecureStorage {
     }
 
     private void authenticateUser(@Nullable Cipher cipher, SecurePreferencesCallback<BiometricPrompt.AuthenticationResult> securePreferencesCallback) throws Exception {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            new Handler(Looper.getMainLooper()).post(() -> {
+                try {
+                    authenticateUserOnMainThread(cipher, securePreferencesCallback);
+                } catch (Exception e) {
+                    securePreferencesCallback.onError(e);
+                }
+            });
+            return;
+        }
+        authenticateUserOnMainThread(cipher, securePreferencesCallback);
+    }
+
+    private void authenticateUserOnMainThread(@Nullable Cipher cipher, SecurePreferencesCallback<BiometricPrompt.AuthenticationResult> securePreferencesCallback) throws Exception {
         // Check if biometric is available based on enforcement setting
         boolean enforceRequired = config.getEnforceBiometrics();
         ensureBiometricAvailable(enforceRequired);
@@ -1412,13 +1419,13 @@ public class FlutterSecureStorage {
         }
 
         CancellationSignal cancellationSignal = new CancellationSignal();
-        Executor executor = Executors.newSingleThreadExecutor();
+        Executor executor = promptContext().getMainExecutor();
         // Framework BiometricPrompt delivers DISMISSED_REASON_NEGATIVE only to the
         // OnClickListener — it does not call onAuthenticationError. Guard against
         // double-completion on OEMs that also emit an error callback.
         final AtomicBoolean settled = new AtomicBoolean(false);
 
-        BiometricPrompt.Builder promptInfoBuilder = new BiometricPrompt.Builder(context)
+        BiometricPrompt.Builder promptInfoBuilder = new BiometricPrompt.Builder(promptContext())
                 .setTitle(config.getBiometricPromptTitle())
                 .setSubtitle(config.getPrefOptionBiometricPromptSubtitle());
 
@@ -1489,8 +1496,8 @@ public class FlutterSecureStorage {
             }
         };
 
-        // A CryptoObject-bound prompt can succeed without UI after the first unlock in this
-        // process. Per-operation mode passes a null cipher so the sheet is shown every time.
+        // CryptoObject-bound prompts require a Cipher; null is used only for legacy
+        // windowed wrapping keys that are not bound to every use.
         if (cipher == null) {
             promptInfo.authenticate(cancellationSignal, executor, callback);
         } else {

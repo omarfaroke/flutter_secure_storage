@@ -153,8 +153,8 @@ class AndroidOptions extends Options {
   /// When `false`, the wrapping key is unlocked once after [initialize] and
   /// reused for later calls in the same process.
   ///
-  /// When `true`, that key is not cached: each call authenticates again and
-  /// discards the decrypted key afterwards.
+  /// When `true`, that key is not cached: each call authenticates again with a
+  /// CryptoObject-bound BiometricPrompt and discards the decrypted key afterwards.
   ///
   /// [AndroidOptions.biometric] defaults to `true`. [AndroidOptions] defaults
   /// to `false`. Has no effect unless biometric authentication is active
