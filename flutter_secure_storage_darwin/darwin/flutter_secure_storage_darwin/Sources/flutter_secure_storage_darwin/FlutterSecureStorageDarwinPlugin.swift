@@ -110,10 +110,12 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
             return
         }
 
-        authenticateIfNeeded(params, result: result) { authorized in
-            let response = self.flutterSecureStorageManager.read(params: authorized)
-            self.handleResponse(response, result)
-        }
+        // Do not pre-call evaluatePolicy for reads. After the user unlocks the
+        // device with Face ID, evaluatePolicy often returns success with no UI;
+        // combined with skipAuthenticationUI that leaked secrets without a sheet.
+        // Keychain ACL + LAContext.localizedReason presents Face ID on SecItemCopyMatching.
+        let response = flutterSecureStorageManager.read(params: params)
+        handleResponse(response, result)
     }
 
     private func write(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
@@ -123,6 +125,7 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
             return
         }
 
+        // SecItemAdd does not prompt for ACL items — force Face ID / Touch ID.
         authenticateIfNeeded(params, result: result) { authorized in
             let response = self.flutterSecureStorageManager.write(params: authorized, value: value)
             self.handleResponse(response, result)
@@ -149,10 +152,9 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
 
     private func readAll(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
         let (params, _) = parseCall(call)
-        authenticateIfNeeded(params, result: result) { authorized in
-            let response = self.flutterSecureStorageManager.readAll(params: authorized)
-            self.handleResponse(response, result)
-        }
+        // Same as read: let Keychain ACL drive the biometric sheet.
+        let response = flutterSecureStorageManager.readAll(params: params)
+        handleResponse(response, result)
     }
 
     private func containsKey(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
@@ -182,7 +184,7 @@ public class FlutterSecureStorageDarwinPlugin: NSObject, FlutterPlugin, FlutterS
     }
 
     /// Keychain ACL alone often skips Face ID on `SecItemAdd` (first write).
-    /// Explicitly evaluate `LAContext` so read/write match `local_auth` UX.
+    /// Explicitly evaluate `LAContext` so write matches `local_auth` UX.
     private func authenticateIfNeeded(
         _ parameters: KeychainQueryParameters,
         result: @escaping FlutterResult,

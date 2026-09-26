@@ -12,6 +12,7 @@
 ### Bug Fixes
 
 * Show Face ID / Touch ID via `LAContext.evaluatePolicy` on each `read` / `write` — Keychain ACL alone often skips the prompt on first write (unlike `local_auth`)
+* Do not put a fresh `SecAccessControl` into Keychain *search* queries (reads); it never matches the stored ACL object, so biometric items looked missing and Face ID never appeared on login
 * Report Keychain user-cancel (`errSecUserCanceled`) as `BIOMETRIC_CANCELED`
 * Preserve user-cancel through Secure Enclave unwrap/write failures (map `LAError` cancel to `errSecUserCanceled` instead of `errSecAuthFailed` / `errSecParam`)
 

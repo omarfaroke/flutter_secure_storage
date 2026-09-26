@@ -199,7 +199,7 @@ class FlutterSecureStorage {
         guard !(params.useSecureEnclave ?? false) else { return nil }
         guard let accessControl = legacyAccessControl(params: params) else { return nil }
 
-        var query = baseQuery(from: params)
+        var query = baseQuery(from: params, attachAccessControl: false)
         query.removeValue(forKey: kSecAttrAccessible)
         query.removeValue(forKey: kSecAttrSynchronizable)
         query[kSecAttrAccessControl] = accessControl
@@ -231,14 +231,20 @@ class FlutterSecureStorage {
         return FlutterSecureStorage.allAccessibilityLevels
             .filter { $0 != currentLevel }
             .map { level in
-                var query = baseQuery(from: params)
+                var query = baseQuery(from: params, attachAccessControl: false)
                 query[kSecAttrAccessible] = level
                 return query
             }
     }
 
     /// Constructs a keychain query dictionary from the given parameters.
-    private func baseQuery(from params: KeychainQueryParameters) -> [CFString: Any] {
+    ///
+    /// - Parameter attachAccessControl: When `true` (writes), stores
+    ///   `kSecAttrAccessControl` on the item. When `false` (reads / contains),
+    ///   omits it — a freshly created `SecAccessControl` never matches the
+    ///   stored object, so including it makes biometric items look missing and
+    ///   suppresses the Face ID sheet.
+    private func baseQuery(from params: KeychainQueryParameters, attachAccessControl: Bool = true) -> [CFString: Any] {
         // Validate parameters
         do {
             try validateQueryParameters(params: params)
@@ -306,17 +312,32 @@ class FlutterSecureStorage {
             effectiveParams.accessControlFlags = "userPresence"
         }
 
-        if let accessControl = createAccessControl(params: effectiveParams) {
-            query[kSecAttrAccessControl] = accessControl
-        } else {
+        let hasAclFlags = !(effectiveParams.accessControlFlags == nil
+            || effectiveParams.accessControlFlags?.isEmpty == true)
+
+        if attachAccessControl {
+            if let accessControl = createAccessControl(params: effectiveParams) {
+                query[kSecAttrAccessControl] = accessControl
+            } else {
+                if let accessibilityLevel = effectiveParams.accessibilityLevel {
+                    query[kSecAttrAccessible] = parseAccessibleAttr(accessibilityLevel)
+                }
+                // Avoid synchronizable when device-bound enforcement is desired.
+                if let isSynchronizable = effectiveParams.isSynchronizable, !(effectiveParams.useSecureEnclave ?? false) {
+                    query[kSecAttrSynchronizable] = isSynchronizable
+                }
+            }
+        } else if !hasAclFlags && !(effectiveParams.useSecureEnclave ?? false) {
+            // Plain items: accessibility is a valid search filter.
             if let accessibilityLevel = effectiveParams.accessibilityLevel {
                 query[kSecAttrAccessible] = parseAccessibleAttr(accessibilityLevel)
             }
-            // Avoid synchronizable when device-bound enforcement is desired.
-            if let isSynchronizable = effectiveParams.isSynchronizable, !(effectiveParams.useSecureEnclave ?? false) {
+            if let isSynchronizable = effectiveParams.isSynchronizable {
                 query[kSecAttrSynchronizable] = isSynchronizable
             }
         }
+        // ACL / Secure Enclave items: search by account+service only so Keychain
+        // can evaluate the item's own access control and show Face ID / Touch ID.
         
         #if os(macOS)
         if #available(macOS 10.15, *), params.usesDataProtectionKeychain {
@@ -453,12 +474,17 @@ class FlutterSecureStorage {
     private func wrappedKeyName(for account: String) -> String { "fss.wrapped." + account }
 
     /// Builds a keychain query for the wrapped AES key item.
-    private func wrappedKeyQuery(from params: KeychainQueryParameters, account: String, returnData: Bool) -> [CFString: Any] {
+    private func wrappedKeyQuery(
+        from params: KeychainQueryParameters,
+        account: String,
+        returnData: Bool,
+        attachAccessControl: Bool
+    ) -> [CFString: Any] {
         var baseParams = params
         baseParams.shouldReturnData = returnData
         baseParams.isSynchronizable = false
         baseParams.accessControlFlags = params.accessControlFlags // prompts apply on unwrap
-        var query = baseQuery(from: baseParams)
+        var query = baseQuery(from: baseParams, attachAccessControl: attachAccessControl)
         query[kSecAttrAccount] = wrappedKeyName(for: account)
         return query
     }
@@ -488,7 +514,7 @@ class FlutterSecureStorage {
             var modifiedParams = params
             modifiedParams.isSynchronizable = synchronizable // Modify the synchronizable parameter for the query.
             modifiedParams.shouldReturnData = false              // Ensuring no data is returned.
-            let query = baseQuery(from: modifiedParams)
+            let query = baseQuery(from: modifiedParams, attachAccessControl: false)
             let status = SecItemCopyMatching(query as CFDictionary, nil)
 
             // Fall back to the legacy SecAccessControl envelope for items written by older
@@ -572,7 +598,7 @@ class FlutterSecureStorage {
             }
         }
 
-        var query = baseQuery(from: params)
+        var query = baseQuery(from: params, attachAccessControl: false)
         query[kSecMatchLimit] = kSecMatchLimitAll
         query[kSecReturnAttributes] = true
         query[kSecReturnData] = true
@@ -624,7 +650,7 @@ class FlutterSecureStorage {
     internal func read(params: KeychainQueryParameters) -> FlutterSecureStorageResponse {
         // If Secure Enclave flow is not requested, do the standard lookup
         if !(params.useSecureEnclave ?? false) {
-            let query = baseQuery(from: params)
+            let query = baseQuery(from: params, attachAccessControl: false)
             var ref: AnyObject?
             var status = SecItemCopyMatching(query as CFDictionary, &ref)
 
@@ -657,7 +683,7 @@ class FlutterSecureStorage {
         guard let account = params.key else {
             return FlutterSecureStorageResponse(status: errSecParam, value: nil)
         }
-        let keyQuery = wrappedKeyQuery(from: params, account: account, returnData: true)
+        let keyQuery = wrappedKeyQuery(from: params, account: account, returnData: true, attachAccessControl: false)
         var keyRef: AnyObject?
         let keyStatus = SecItemCopyMatching(keyQuery as CFDictionary, &keyRef)
         if keyStatus == errSecItemNotFound {
@@ -671,7 +697,7 @@ class FlutterSecureStorage {
         // Read encrypted data payload
         var dataParams = params
         dataParams.shouldReturnData = true
-        let dataQuery = baseQuery(from: dataParams)
+        let dataQuery = baseQuery(from: dataParams, attachAccessControl: false)
         var dataRef: AnyObject?
         let dataStatus = SecItemCopyMatching(dataQuery as CFDictionary, &dataRef)
         if dataStatus == errSecItemNotFound {
@@ -709,7 +735,7 @@ class FlutterSecureStorage {
             // Fallback for OS versions without required APIs: standard read with access control
             var fallbackParams = params
             fallbackParams.useSecureEnclave = false
-            let query = baseQuery(from: fallbackParams)
+            let query = baseQuery(from: fallbackParams, attachAccessControl: false)
             var ref: AnyObject?
             let status = SecItemCopyMatching(query as CFDictionary, &ref)
             if (status == errSecItemNotFound) {
@@ -727,7 +753,7 @@ class FlutterSecureStorage {
     internal func write(params: KeychainQueryParameters, value: String) -> FlutterSecureStorageResponse {
         if !(params.useSecureEnclave ?? false) {
             let keyExists = (containsKey(params: params).getOrElse(false))
-            var query = baseQuery(from: params)
+            var query = baseQuery(from: params, attachAccessControl: true)
 
             if keyExists {
                 let update: [CFString: Any] = [kSecValueData: value.data(using: .utf8) as Any]
@@ -775,7 +801,7 @@ class FlutterSecureStorage {
                 keyParams.key = wrappedKeyName(for: account)
                 keyParams.shouldReturnData = false
                 keyParams.isSynchronizable = false
-                var keyQuery = baseQuery(from: keyParams)
+                var keyQuery = baseQuery(from: keyParams, attachAccessControl: true)
                 keyQuery[kSecValueData] = wrappedKey
                 // Upsert wrapped key item
                 let keyExists = (containsKey(params: keyParams).getOrElse(false))
@@ -792,7 +818,7 @@ class FlutterSecureStorage {
                 // Store encrypted payload under original account
                 var dataParams = params
                 dataParams.shouldReturnData = false
-                var dataQuery = baseQuery(from: dataParams)
+                var dataQuery = baseQuery(from: dataParams, attachAccessControl: true)
                 dataQuery[kSecValueData] = blob
                 let dataExists = (containsKey(params: params).getOrElse(false))
                 var dataStatus: OSStatus
@@ -812,7 +838,7 @@ class FlutterSecureStorage {
             var fallbackParams = params
             fallbackParams.useSecureEnclave = false
             let keyExists = (containsKey(params: fallbackParams).getOrElse(false))
-            var query = baseQuery(from: fallbackParams)
+            var query = baseQuery(from: fallbackParams, attachAccessControl: true)
             if keyExists {
                 let update: [CFString: Any] = [kSecValueData: value.data(using: .utf8) as Any]
                 let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
@@ -891,7 +917,7 @@ class FlutterSecureStorage {
             modifiedParams.accessibilityLevel = nil
             modifiedParams.accessControlFlags = nil
 
-            let query = baseQuery(from: modifiedParams)
+            let query = baseQuery(from: modifiedParams, attachAccessControl: false)
             return SecItemDelete(query as CFDictionary)
         }
 
@@ -919,7 +945,7 @@ class FlutterSecureStorage {
     }
 
     internal func getPersistentReference(params: KeychainQueryParameters) -> FlutterSecureStorageResponse {
-        var query = baseQuery(from: params)
+        var query = baseQuery(from: params, attachAccessControl: false)
         query[kSecReturnPersistentRef] = true
 
         var ref: AnyObject?
